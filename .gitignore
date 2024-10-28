@@ -1,0 +1,27 @@
+# Ignore Python cache directories and compiled files
+__pycache__/
+*.py[cod]
+
+# Ignore log files and folders
+log/
+*.log
+
+# Ignore datasets and third-party model files
+datasets/
+3rdPartyModels/
+
+# Ignore all files in the test directory (if used for testing purposes)
+test/
+
+# Ignore temporary and system files
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+
+# Ignore Node.js or front-end related content (if the Web folder contains front-end code)
+Web/node_modules/
+Web/.next/
+Web/dist/
+
+playground/
