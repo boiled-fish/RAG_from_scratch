@@ -29,6 +29,7 @@ class ScratchRAGModel(nn.Module):
         self.log.info("Initializing RAGModel with retriever and generator.")
 
         # Initialize the retriever (using BERT for encoding)
+        self.top_k = 5
         self.tokenizer_retriever = BertTokenizer.from_pretrained(retriever_model_name, cache_dir='./hugging_face_models')
         self.retriever = BertModel.from_pretrained(retriever_model_name, cache_dir='./hugging_face_models')
         
@@ -73,6 +74,7 @@ class ScratchRAGModel(nn.Module):
         embeddings = []
 
         # Embed each document using the retriever model
+        self.log.debug(f"Embedding {len(candidate_docs)} documents...")
         for doc in tqdm(candidate_docs, desc="Embedding documents"):
             doc_tokens = self.tokenizer_retriever(doc, return_tensors='pt', padding=True, truncation=True).to(self.device) 
             with torch.no_grad():
@@ -80,11 +82,14 @@ class ScratchRAGModel(nn.Module):
                 embeddings.append(doc_embedding)
 
         # Convert embeddings to a NumPy array and store them in Faiss
+        self.log.debug("Stacking embeddings...")
         embeddings = np.vstack(embeddings).astype(np.float32)
 
         # Initialize a Faiss index
         d = embeddings.shape[1]  # Dimension of the embeddings
+        self.log.debug(f"Initializing Faiss index with dimension {d}...")
         self.faiss_index = faiss.IndexFlatL2(d)  # Use L2 distance (or you can choose cosine similarity index)
+        self.log.debug("Adding embeddings to Faiss index...")
         self.faiss_index.add(embeddings)  # Add embeddings to the Faiss index
 
         # Store document texts for retrieval later
@@ -102,14 +107,17 @@ class ScratchRAGModel(nn.Module):
             List[Tuple[int, str, float]]: A list of tuples containing the index, document, and similarity score.
         """
         # Embed the query using the retriever
+        self.log.debug(f"Embedding query: {query}")
         query_tokens = self.tokenizer_retriever(query, return_tensors='pt', padding=True, truncation=True).to(self.device)
         with torch.no_grad():
             query_embedding = self.retriever(**query_tokens).last_hidden_state.mean(dim=1).cpu().numpy()
 
         # Search the Faiss index to find the top-k most similar documents
+        self.log.debug(f"Searching Faiss index for top {top_k} documents...")
         distances, indices = self.faiss_index.search(query_embedding, top_k)
         
         # Retrieve the top-k documents and their scores
+        self.log.debug(f"Retrieving top {top_k} documents...")
         top_k_docs = [(idx, self.document_texts[idx], distances[0][i]) for i, idx in enumerate(indices[0])]
 
         return top_k_docs
@@ -122,11 +130,13 @@ class ScratchRAGModel(nn.Module):
         inputs = self.tokenizer_generator(input_text, return_tensors="pt", padding=True, truncation=True).to(self.device)
         
         # Use the generator to produce the output
+        self.log.debug("Generating output ids...")
         generated_ids = self.generator.generate(inputs["input_ids"], max_length=50, num_beams=5)
+        self.log.debug("Decoding generated ids to text...")
         output = self.tokenizer_generator.decode(generated_ids[0], skip_special_tokens=True)
         return output
 
-    def forward(self, input_query, max_length=50, top_k=3):
+    def forward(self, input_query, max_length=50):
         """
         Forward pass to retrieve documents based on input query and generate a response.
 
@@ -140,18 +150,22 @@ class ScratchRAGModel(nn.Module):
             generated_text (str): The generated response based on the retrieved documents.
         """
         # Step 1: Retrieve top-k documents based on input_query
-        retrieved_docs = self.retrieve_documents(input_query, top_k=top_k)
+        self.log.debug(f"Retrieving {self.top_k} documents for query: {input_query}")
+        retrieved_docs = self.retrieve_documents(input_query, top_k=self.top_k)
 
         # Step 2: Concatenate the retrieved documents into a single context string
+        self.log.debug(f"Concatenating retrieved documents: {retrieved_docs}")
         context = " ".join([doc[1] for doc in retrieved_docs])  # doc[1] is the document text
 
         # Step 3: Tokenize the input query and context using the generator's tokenizer
         combined_input = f"{input_query} {context}"
+        self.log.debug(f"Tokenizing combined input: {combined_input}")
         input_tokens = self.tokenizer_generator(
             combined_input, return_tensors='pt', padding=True, truncation=True, max_length=512
         ).to(self.device)
 
         # Step 4: Pass the combined input to the generator model to generate a response
+        self.log.debug("Passing combined input to generator model...")
         with torch.no_grad():
             generated_ids = self.generator.generate(
                 input_ids=input_tokens['input_ids'],
@@ -162,6 +176,7 @@ class ScratchRAGModel(nn.Module):
             )
 
         # Decode the generated ids to text
+        self.log.debug("Decoding generated ids to text...")
         generated_text = self.tokenizer_generator.decode(generated_ids[0], skip_special_tokens=True)
         
         return generated_text
@@ -169,8 +184,11 @@ class ScratchRAGModel(nn.Module):
     def calculate_loss(self, query, target_output):
         """Calculate the joint loss for retriever and generator."""
         self.log.debug("Calculating loss.")
-        retrieved_docs = self.retrieve_documents(query, top_k=5)
         
+        self.log.debug(f"Retrieving {self.top_k} documents for query: {query}")
+        retrieved_docs = self.retrieve_documents(query, top_k=self.top_k)
+        
+        self.log.debug(f"Concatenating query and retrieved documents: {query} {retrieved_docs}")
         input_text = query + " " + " ".join([doc[1] for doc in retrieved_docs])
         inputs = self.tokenizer_generator(
             input_text, 
@@ -178,6 +196,7 @@ class ScratchRAGModel(nn.Module):
             padding=True, 
             truncation=True).to(self.device)
         
+        self.log.debug(f"Tokenizing target output: {target_output}")
         labels = self.tokenizer_generator(
             target_output,
             return_tensors="pt",
@@ -187,6 +206,7 @@ class ScratchRAGModel(nn.Module):
         )["input_ids"].to(self.device)
         labels[labels == self.tokenizer_generator.pad_token_id] = -100
 
+        self.log.debug("Passing inputs to generator model...")
         outputs = self.generator(input_ids=inputs["input_ids"], labels=labels)
         return outputs.loss
     
@@ -198,6 +218,7 @@ class ScratchRAGModel(nn.Module):
         rouge = load("rouge")
         bleu_scores = []
 
+        self.log.info(f"Evaluating {len(queries)} queries...")
         for query, target_output in tqdm(zip(queries, target_outputs), total=len(queries), desc="Evaluating"):
             with torch.no_grad():
                 generated_output = self.forward(query)
@@ -222,34 +243,35 @@ class ScratchRAGModel(nn.Module):
         if not os.path.exists(save_directory):
             os.makedirs(save_directory)
         
-        # Save retriever model and tokenizer
-        retriever_path = os.path.join(save_directory, 'retriever_model')
-        self.retriever.save_pretrained(retriever_path)
-
+        retriever_path           = os.path.join(save_directory, 'retriever_model')
+        generator_path           = os.path.join(save_directory, 'generator_model')
         tokenizer_retriever_path = os.path.join(save_directory, 'tokenizer_retriever')
-        self.tokenizer_retriever.save_pretrained(tokenizer_retriever_path)
-        
-        # Save generator model and tokenizer
-        generator_path = os.path.join(save_directory, 'generator_model')
-        self.generator.save_pretrained(generator_path)
-
         tokenizer_generator_path = os.path.join(save_directory, 'tokenizer_generator')
+
+        self.log.info("Saving retriever model and tokenizer...")
+        self.retriever.save_pretrained(retriever_path)
+        self.tokenizer_retriever.save_pretrained(tokenizer_retriever_path)
+
+        self.log.info("Saving generator model and tokenizer...")
+        self.generator.save_pretrained(generator_path)
         self.tokenizer_generator.save_pretrained(tokenizer_generator_path)
         
         self.log.info(f"Models saved to {save_directory}")
 
     def load_model(self, load_directory):
         """Loads the retriever and generator models and tokenizers from the specified directory."""
-        retriever_path = os.path.join(load_directory, 'retriever_model')
-        generator_path = os.path.join(load_directory, 'generator_model')
+        retriever_path           = os.path.join(load_directory, 'retriever_model')
+        generator_path           = os.path.join(load_directory, 'generator_model')
         tokenizer_retriever_path = os.path.join(load_directory, 'tokenizer_retriever')
         tokenizer_generator_path = os.path.join(load_directory, 'tokenizer_generator')
         
         # Load retriever model and tokenizer
+        self.log.info("Loading retriever model and tokenizer...")
         self.retriever = BertModel.from_pretrained(retriever_path)
         self.tokenizer_retriever = BertTokenizer.from_pretrained(tokenizer_retriever_path)
         
         # Load generator model and tokenizer
+        self.log.info("Loading generator model and tokenizer...")
         self.generator = BartForConditionalGeneration.from_pretrained(generator_path)
         self.tokenizer_generator = BartTokenizer.from_pretrained(tokenizer_generator_path)
         
@@ -317,7 +339,7 @@ class ScratchRAGModel(nn.Module):
                  save_model=False,
                  checkpoint_interval=1
         ):
-        self.log.info("Loading WikiQA dataset...")
+        self.log.info("Loading rag-mini-wikipedia dataset...")
         #dataset = load_dataset('wiki_qa', cache_dir='./datasets')
         qa_dataset = load_dataset(
             'rag-datasets/rag-mini-wikipedia', 
