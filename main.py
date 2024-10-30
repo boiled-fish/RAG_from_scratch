@@ -13,7 +13,7 @@ from rag.rag_scratch import ScratchRAGModel
 
 def main(args):
     # Define parameters for the pipeline
-    num_train_epochs = 50
+    num_train_epochs = 100
     learning_rate = 3e-5
     logging_dir = './log'
     save_model = True

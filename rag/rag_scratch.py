@@ -11,6 +11,7 @@ from datasets import load_dataset
 from nltk.translate.bleu_score import sentence_bleu
 from torch.utils.tensorboard import SummaryWriter
 from utils.custom_logger import CustomLogger
+from datetime import datetime
 
 class ScratchRAGModel(nn.Module):
     def __init__(self, log_dir = './log', retriever_model_name='bert-base-uncased', generator_model_name='facebook/bart-large', args=None):
@@ -280,15 +281,38 @@ class ScratchRAGModel(nn.Module):
         
         self.log.info(f"Models loaded from {load_directory}")
 
-    def train_scratch_rag_model(self, queries, target_outputs, learning_rate=1e-5, epochs=3, checkpoint_interval=1):
+    def train_scratch_rag_model(
+            self, 
+            queries, 
+            target_outputs, 
+            learning_rate=1e-5, 
+            epochs=3, 
+            checkpoint_interval=1, 
+            resume_from_checkpoint=None
+        ):
         """Train the RAG model with checkpointing support."""
-        self.log.info("Starting training.")
+        if resume_from_checkpoint:
+            self.log.info(f"Resuming training from checkpoint: {resume_from_checkpoint}")
+        else:
+            self.log.info("Starting training.")
+        
+        # log all the parameters
+        self.log.info(f"Learning rate: {learning_rate}")
+        self.log.info(f"Epochs: {epochs}")
+        self.log.info(f"Checkpoint interval: {checkpoint_interval}")
+        self.log.info(f"Resume from checkpoint: {resume_from_checkpoint}")
+
         writer = SummaryWriter(os.path.join(self.log_dir, "tensorboard"))  # TensorBoard writer
 
         self.train()
         optimizer = optim.Adam(self.parameters(), lr=learning_rate)
+        
+        start_epoch = 0
+        if resume_from_checkpoint:
+            self.load_model(resume_from_checkpoint)
+            start_epoch = int(resume_from_checkpoint.split('_')[-1])
 
-        for epoch in range(0, epochs):
+        for epoch in range(start_epoch, epochs):
             epoch_start_time = time.time()  # Record the start time of the epoch
             total_loss = 0
             self.log.info(f"Epoch {epoch + 1} started.")
@@ -300,7 +324,7 @@ class ScratchRAGModel(nn.Module):
                 optimizer.step()
                 total_loss += loss.item()
 
-                if i % 100 == 0:  # Log every 100 steps
+                if i % 100 == 0 and i != 0:  # Log every 100 steps
                     self.log.info(f"Epoch {epoch + 1}, Step {i} : Loss = {loss.item():.4f}")
                     writer.add_scalar("Training Loss", loss.item(), epoch * len(queries) + i)  # TensorBoard logging
 
@@ -362,7 +386,7 @@ class ScratchRAGModel(nn.Module):
         self.embed_documents(documents)
 
         # Call training function with the option to resume from a checkpoint
-        self.log.info("Training RAG model with WikiQA dataset...")
+        self.log.info("Training RAG model with rag-mini-wikipedia dataset...")
         self.train_scratch_rag_model(
             queries, target_outputs, 
             learning_rate=learning_rate, 
