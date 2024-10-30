@@ -1,28 +1,41 @@
 import logging
 import os
 import datetime
+import sys
 
+# Enhanced CustomLogger with timestamp and better formatting
 class CustomLogger:
-    def __init__(self, log_dir_base="../log", log_file_name="rag_training.log"):
-        current_time = datetime.datetime.now().strftime("%m-%d-%Y-%H-%M")
-        self.log_dir = os.path.join(log_dir_base, current_time)
-        os.makedirs(self.log_dir, exist_ok=True)
-        self.log_file_path = os.path.join(self.log_dir, log_file_name)
-        self.setup_logging()
+    def __init__(self, log_dir_base, logger_name):
+        self.log_dir_base = log_dir_base
+        self.logger_name = logger_name
+        self.logger = logging.getLogger(logger_name)
+        self.logger.setLevel(logging.INFO)
 
-    def setup_logging(self):
-        # Set up logging configuration
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s [%(levelname)s] %(message)s",
-            handlers=[
-                logging.FileHandler(self.log_file_path),
-                logging.StreamHandler()
-            ]
-        )
+        if not os.path.exists(log_dir_base):
+            os.makedirs(log_dir_base)
+
+        self.log_dir = f"{log_dir_base}/{logger_name}"
+        if not os.path.exists(self.log_dir):
+            os.makedirs(self.log_dir)
+
+        # Prevent adding multiple handlers if logger is already configured
+        if not self.logger.handlers:
+            formatter = logging.Formatter('%(asctime)s - [%(levelname)s] - %(message)s')
+
+            # Create file handler
+            fh = logging.FileHandler(f"{self.log_dir}/{logger_name}.log")
+            fh.setLevel(logging.INFO)
+            fh.setFormatter(formatter)
+            self.logger.addHandler(fh)
+
+            # Create console handler
+            ch = logging.StreamHandler(sys.stdout)
+            ch.setLevel(logging.INFO)
+            ch.setFormatter(formatter)
+            self.logger.addHandler(ch)
+
+    def get_logger(self):
+        return self.logger
 
     def get_log_dir(self):
         return self.log_dir
-
-    def get_logger(self):
-        return logging.getLogger()  # Return the standard logger instance

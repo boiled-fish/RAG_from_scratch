@@ -25,3 +25,5 @@ Web/.next/
 Web/dist/
 
 playground/
+
+hugging_face_models/

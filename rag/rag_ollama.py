@@ -12,32 +12,7 @@ import json
 
 # TODO: add image analyser class, for each image, get a description of the image, not only the embedding
 
-# 1. Web Scraper Class
-class WebScraper:
-    def __init__(self, url):
-        self.url = url
-
-    def scrape(self):
-        """
-        Scrapes text and images from the given webpage URL.
-        Returns text content and a list of image URLs.
-        """
-        response = requests.get(self.url)
-        soup = BeautifulSoup(response.content, 'html.parser')
-        
-        # Extract all text from the webpage
-        text = soup.get_text(separator=' ', strip=True)
-
-        # Extract all image URLs from the webpage
-        images = []
-        for img_tag in soup.find_all('img'):
-            img_url = img_tag.get('src')
-            if img_url and img_url.startswith('http'):
-                images.append(img_url)
-        
-        return text, images
-
-# 2. Text Embedding Class (Using BERT)
+# Text Embedding Class (Using BERT)
 class TextEmbedder:
     def __init__(self, device):
         self.device = device
@@ -62,7 +37,7 @@ class TextEmbedder:
         print(f"Text Embedding Shape: {embedding.shape}")  # Debugging the shape
         return embedding.cpu().numpy()  # Return as NumPy array
 
-# 3. Image Embedding Class (for CLIP or ViT)
+# Image Embedding Class (for CLIP or ViT)
 class ImageEmbedder:
     def __init__(self, device):
         self.device = device
@@ -96,7 +71,7 @@ def normalize_vector(vector):
     norm = np.linalg.norm(vector, axis=-1, keepdims=True)
     return vector / norm
 
-# 4. FAISS Vector Store Class
+# FAISS Vector Store Class
 class VectorStore:
     def __init__(self, dimension):
         """
@@ -173,7 +148,7 @@ class LlamaModel:
         finally:
             response.close()
 
-# 6. Main Pipeline Class
+# Main Pipeline Class
 class Pipeline:
     def __init__(self, url, device='cuda' if torch.cuda.is_available() else 'cpu', k=5):
         self.url = url
@@ -293,7 +268,7 @@ class Pipeline:
         print(f"Generated Response:\n{response}")
 
 
-# 7. Command Line Argument Parser
+# Command Line Argument Parser
 def parse_args():
     parser = argparse.ArgumentParser(description="Run a pipeline that scrapes text and images, stores embeddings in FAISS, and queries using text or image.")
     
@@ -304,8 +279,8 @@ def parse_args():
     
     return parser.parse_args()
 
-# 8. Execute Pipeline from Command Line
-if __name__ == "__main__":
+# Execute Pipeline from Command Line
+def ollama_rag(args):
     args = parse_args()
 
     # Initialize pipeline

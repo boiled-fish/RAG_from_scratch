@@ -3,6 +3,7 @@ import torch
 from evaluate import load
 from nltk.translate.bleu_score import sentence_bleu
 
+
 def save_model(model, save_directory="saved_model"):
     """Save the trained retriever and generator models."""
     if not os.path.exists(save_directory):
@@ -52,3 +53,26 @@ def evaluate_rag_model(model, test_queries, documents, target_outputs):
     print(f"ROUGE Score: {rouge_result}")
 
     return generated_outputs, avg_bleu_score, rouge_result
+
+
+def save_checkpoint(model, optimizer, epoch, checkpoint_dir, filename='checkpoint.pth'):
+    """Save the model checkpoint."""
+    checkpoint_path = os.path.join(checkpoint_dir, filename)
+    torch.save({
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+    }, checkpoint_path)
+
+
+def load_checkpoint(model, optimizer, checkpoint_dir, filename='checkpoint.pth'):
+    """Load the model checkpoint."""
+    checkpoint_path = os.path.join(checkpoint_dir, filename)
+    if os.path.isfile(checkpoint_path):
+        checkpoint = torch.load(checkpoint_path)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        start_epoch = checkpoint['epoch'] + 1
+        return start_epoch
+    else:
+        return 0

@@ -13,41 +13,37 @@ class WikiQADataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, index):
-        row = self.data.iloc[index]
-        query = row['Question']
-        answer = row['Answer']
-        passage = row['Passage']
+        row = self.data[index]  # Assuming Hugging Face Datasets format
+        query = row['question']
+        answer = row['answer']
+        # Since 'document_title' might be relevant in context, include it
+        passage = row['document_title'] + " " + answer
 
         return query, answer, passage
 
-def preprocess_wikiqa(file_path):
+def preprocess_wikiqa():
     """
-    Preprocess WikiQA dataset into a format suitable for training the retriever.
-    The dataset is assumed to be in a CSV format with 'Question', 'Answer', and 'Passage' columns.
+    Preprocess WikiQA dataset using the Hugging Face 'datasets' library.
     """
-    df = pd.read_csv(file_path, delimiter='\t')
-    
-    # Filter positive and negative samples (assuming 1 = positive, 0 = negative)
-    positive_samples = df[df['Label'] == 1]
-    negative_samples = df[df['Label'] == 0]
-    
-    # Split dataset into training and testing sets
-    train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
-    
-    return train_df, test_df
+    # Load the train and validation splits
+    train_dataset = load_dataset('wiki_qa', split='train')
+    test_dataset = load_dataset('wiki_qa', split='validation')
 
-def load_wikiqa_data(file_path, tokenizer, batch_size=8):
+    return train_dataset, test_dataset
+
+def load_wikiqa_data(tokenizer, batch_size=8):
     """
     Load and preprocess the WikiQA dataset into DataLoader objects for training and testing.
     """
-    train_df, test_df = preprocess_wikiqa(file_path)
+    train_dataset, test_dataset = preprocess_wikiqa()
     
     # Create dataset objects
-    train_dataset = WikiQADataset(train_df, tokenizer)
-    test_dataset = WikiQADataset(test_df, tokenizer)
+    train_dataset = WikiQADataset(train_dataset, tokenizer)
+    test_dataset = WikiQADataset(test_dataset, tokenizer)
 
     # Create DataLoaders
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     return train_loader, test_loader
+
