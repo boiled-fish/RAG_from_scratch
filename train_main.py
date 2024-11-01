@@ -14,6 +14,7 @@ sys.path.append(project_root)
 import torch
 import argparse
 from rag.rag_scratch import ScratchRAGModel
+from rag.rag_fine_tune import FineTuneRAGModel
 from rag.Retriever import Retriever
 
 import warnings
@@ -41,10 +42,14 @@ def main(args):
         )
         query = "What did The Legal Tender Act of 1862 establish?"
         print(model.inference(query))
-    elif args.mode == "use":
-        model = use_model(args)
-    elif args.mode == "evaluate":
-        model = do_evaluate(args)
+    elif args.mode == "fine_tune":
+        model = FineTuneRAGModel(logging_dir)
+        model.pipeline(
+            num_train_epochs = num_train_epochs,
+            learning_rate = learning_rate,
+            save_model = save_model,
+            checkpoint_interval = checkpoint_interval
+        )
     elif args.mode == "retriever":
         retriever = Retriever(
             log_dir='./log',
@@ -57,30 +62,10 @@ def main(args):
         #query = "What is the capital of France?"
         #print(retriever.inference(query, top_k=5))
 
-
-def use_model(args):
-    model = ScratchRAGModel('./log')
-    model.load_model("./log/scratch_rag/rag_trained_model_wikiqa")
-
-    query = "What did The Legal Tender Act of 1862 establish?"
-    print(model.inference(query))
-
-def do_evaluate():
-    model = ScratchRAGModel('./log')
-    model.load_model("./log/scratch_rag/rag_trained_model_wikiqa")
-    model.evaluate()
-
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
     args.add_argument("--mode", type=str, default="scratch")
     args = args.parse_args()
 
-    if args.mode == "scratch":
-        main(args)
-    elif args.mode == "use":
-        use_model(args)
-    elif args.mode == "evaluate":
-        do_evaluate(args)
-    elif args.mode == "retriever":
-        main(args)
+    main(args)
 
