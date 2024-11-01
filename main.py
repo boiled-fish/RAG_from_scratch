@@ -52,9 +52,9 @@ def main(args):
             device='cuda' if torch.cuda.is_available() else 'cpu',
             cache_dir='./hugging_face_models'
         )
-        retriever.load_model('./log/retriever_logs/retriever_model_old')
-        retriever.test_retriever()
-        #retriever.pipeline(learning_rate=1e-6, num_epochs=10000, resume=False)
+        retriever.pipeline(learning_rate=1e-6, num_epochs=10000, resume=False)
+        #retriever.test_retriever()
+        
         #query = "What is the capital of France?"
         #print(retriever.inference(query, top_k=5))
 

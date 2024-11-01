@@ -158,24 +158,24 @@ class Retriever(nn.Module):
             positive_docs.append(positive_doc)
         return positive_docs
 
-    def forward(self, queries):
+    def forward(self, queries, target_docs):
         """Calculate the loss between the queries and the positive documents using in-batch negatives."""
         # Retrieve positive documents for the batch of queries
         positive_docs = self.retrieve(queries)
 
         # Encode the queries and positive documents
-        query_embeddings = self.encode_documents(queries)  # Shape: (batch_size, embedding_dim)
         doc_embeddings = self.encode_documents(positive_docs)  # Shape: (batch_size, embedding_dim)
+        target_doc_embeddings = self.encode_documents(target_docs)  # Shape: (batch_size, embedding_dim)
 
         # Normalize embeddings to compute cosine similarity
-        query_embeddings = F.normalize(query_embeddings, p=2, dim=1)
         doc_embeddings = F.normalize(doc_embeddings, p=2, dim=1)
+        target_doc_embeddings = F.normalize(target_doc_embeddings, p=2, dim=1)
 
         # Compute similarity matrix between queries and documents
-        similarity_matrix = torch.matmul(query_embeddings, doc_embeddings.T)  # Shape: (batch_size, batch_size)
+        similarity_matrix = torch.matmul(target_doc_embeddings, doc_embeddings.T)  # Shape: (batch_size, batch_size)
 
         # Labels are indices from 0 to batch_size - 1
-        labels = torch.arange(query_embeddings.size(0)).to(self.device)
+        labels = torch.arange(doc_embeddings.size(0)).to(self.device)
 
         # Use CrossEntropyLoss
         loss_fn = nn.CrossEntropyLoss()
@@ -202,7 +202,7 @@ class Retriever(nn.Module):
                 queries = list(queries)
 
                 # Calculate loss
-                loss = self(queries)
+                loss = self(queries, positive_docs)
 
                 # Backpropagation and optimization
                 self.optimizer.zero_grad()
@@ -211,8 +211,6 @@ class Retriever(nn.Module):
 
                 total_loss += loss.item()
                 self.writer.add_scalar('Loss/batch', loss.item(), batch_idx)
-                if (batch_idx + 1) % 10 == 0:
-                    self.log.info(f"Epoch {epoch + 1}/{num_epochs}, Batch {batch_idx + 1}/{len(self.train_loader)}, Loss: {loss.item():.4f}")
 
             avg_loss = total_loss / len(self.train_loader)
             if (epoch + 1) % 10 == 0:
