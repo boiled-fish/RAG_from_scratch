@@ -1,9 +1,9 @@
+import os
 import requests
 from langchain.llms.ollama import Ollama
 from langchain.llms.openai import OpenAI
-
 from langchain.chains import RetrievalQA
-from langchain.vectorstores import Chroma  # Use official LangChain Chroma
+from langchain.vectorstores import Pinecone as PineconeVectorStore  # Official LangChain Pinecone
 from langchain.embeddings.base import Embeddings
 from langchain.schema import Document
 from langchain.text_splitter import CharacterTextSplitter
@@ -11,12 +11,12 @@ from datasets import load_dataset
 from tqdm import tqdm
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
-import os
+import pinecone
+from pinecone import Pinecone as PineconeClient, ServerlessSpec, PodSpec
+import logging
 from typing import List, Union
-import pickle
 import torch
 from dataclasses import dataclass
-import logging
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -38,8 +38,6 @@ class OllamaEmbeddings(Embeddings):
             batch = texts[i:i + self.batch_size]
             with ThreadPoolExecutor(max_workers=self.batch_size) as executor:
                 batch_embeddings = list(executor.map(self.embed_query, batch))
-            
-            # Convert embeddings to numpy arrays
             embeddings.extend(batch_embeddings)
         return embeddings
 
@@ -62,11 +60,17 @@ class RAGModel:
     def __init__(self, 
                  k: int = 5, 
                  generator_model: str = 'llama3:latest', 
-                 cache_dir: str = './cache'):
+                 cache_dir: str = './cache',
+                 pinecone_api_key: str = 'YOUR_PINECONE_API_KEY',  # Replace with your Pinecone API key
+                 pinecone_env: str = 'YOUR_PINECONE_ENVIRONMENT'  # Replace with your Pinecone environment
+                ):
         self.k = k
         self.generator_model = generator_model
         self.cache_dir = cache_dir
+        self.pinecone_api_key = pinecone_api_key
+        self.pinecone_env = pinecone_env
         self.embedding = self._get_embedding()
+        self.pinecone_client = self._init_pinecone()
         self.vector_store = self._build_vector_store()
         self.retriever = self._get_retriever()
         self.generator = self._get_generator()
@@ -77,28 +81,45 @@ class RAGModel:
             batch_size=32
         )
 
-    def _build_vector_store(self):
-        cache_file = os.path.join(self.cache_dir, 'vector_store.pkl')
-        
-        if os.path.exists(cache_file):
-            logger.info("Loading vector store from cache...")
-            with open(cache_file, 'rb') as f:
-                return pickle.load(f)
+    def _init_pinecone(self):
+        # Initialize Pinecone client
+        pinecone_client = PineconeClient(
+            api_key=self.pinecone_api_key,
+            environment=self.pinecone_env
+        )
+        return pinecone_client
 
-        logger.info("Building new vector store with Chroma...")
-        
+    def _build_vector_store(self):
+        # Define Pinecone index name
+        index_name = "rag-index"
+
+        # Create index if it does not exist
+        if index_name not in self.pinecone_client.list_indexes():
+            logger.info(f"Creating Pinecone index '{index_name}'...")
+            self.pinecone_client.create_index(
+                name=index_name,
+                dimension=768,  # Adjust based on your embedding dimension
+                metric="euclidean",
+                spec=PodSpec(pod_type="p1")  # Correctly specify the pod type using PodSpec
+            )
+            logger.info(f"Pinecone index '{index_name}' created.")
+        else:
+            logger.info(f"Pinecone index '{index_name}' already exists.")
+
+        # Connect to the Pinecone index
+        index = self.pinecone_client.Index(index_name)
+
         # Load datasets
         qa_dataset = load_dataset('rag-datasets/rag-mini-wikipedia', 'question-answer', cache_dir='./datasets')
         corpus_dataset = load_dataset('rag-datasets/rag-mini-wikipedia', 'text-corpus', cache_dir='./datasets')
 
         # Prepare documents
         documents = []
-        batch_size = 1000
-        
+
         # Process corpus dataset
         corpus_docs = [Document(page_content=entry['passage']) for entry in corpus_dataset['passages']]
         documents.extend(corpus_docs)
-        
+
         # Process QA dataset
         qa_data = qa_dataset['test']
         qa_docs = []
@@ -113,27 +134,28 @@ class RAGModel:
         docs = text_splitter.split_documents(documents)
 
         # Create embeddings in batches
-        logger.info("Creating embeddings...")
+        logger.info("Creating embeddings with CPU processing...")
         texts = [doc.page_content for doc in docs]
         embeddings = []
-        
+
+        batch_size = 1000  # Adjust as needed
         for i in tqdm(range(0, len(texts), batch_size), desc="Creating embeddings"):
             batch_texts = texts[i:i + batch_size]
             batch_embeddings = self.embedding.embed_documents(batch_texts)
             embeddings.extend(batch_embeddings)
 
-        # Build Chroma vector store
-        logger.info("Building Chroma vector store...")
-        vector_store = Chroma.from_texts(
-            texts=texts,
-            embedding=self.embedding,
-            persist_directory=os.path.join(self.cache_dir, 'chroma_store')  # Directory to persist Chroma data
-        )
+        # Upsert to Pinecone
+        logger.info("Upserting embeddings to Pinecone...")
+        ids = [f"doc_{i}" for i in range(len(texts))]
+        vectors = embeddings
+        index.upsert(vectors=list(zip(ids, vectors)))
+        logger.info("Embeddings upserted to Pinecone.")
 
-        # Cache the vector store
-        logger.info("Caching vector store...")
-        with open(cache_file, 'wb') as f:
-            pickle.dump(vector_store, f)
+        # Initialize LangChain Pinecone vector store
+        vector_store = PineconeVectorStore(
+            embedding_function=self.embedding.embed_query,  # Ensure this matches your embedding setup
+            index=index
+        )
 
         return vector_store
 
@@ -168,22 +190,23 @@ class RAGModel:
         text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         docs = text_splitter.split_documents(new_documents)
 
-        # Add documents to Chroma vector store
-        logger.info("Adding new documents to the vector store...")
+        # Embed and upsert new documents to Pinecone
+        logger.info("Adding new documents to Pinecone vector store...")
         texts = [doc.page_content for doc in docs]
         embeddings = self.embedding.embed_documents(texts)
-
-        # Add texts and optionally provide embeddings
-        self.vector_store.add_texts(
-            texts=texts,
-            embeddings=embeddings  # Pass embeddings if Chroma supports it
-        )
+        ids = [f"doc_new_{i}" for i in range(len(texts))]  # Generate unique IDs
+        vectors = embeddings
+        self.pinecone_client.Index("rag-index").upsert(vectors=list(zip(ids, vectors)))
+        logger.info("New documents upserted to Pinecone.")
 
     def change_generator(self, new_generator: str):
         self.generator = self._get_generator(new_generator)
 
 if __name__ == "__main__":
-    # Initialize with Chroma vector store
-    rag = RAGModel()
+    # Initialize with Pinecone vector store
+    rag = RAGModel(
+        pinecone_api_key="4acd1cb7-e133-4cfb-a5fc-1267e5f91515",  # Ensure this API key is correct
+        pinecone_env=os.getenv('PINECONE_ENVIRONMENT')  # Ensure this environment variable is set
+    )
     result = rag.generate("What is the capital of France?")
     print(result)
