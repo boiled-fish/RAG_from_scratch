@@ -182,7 +182,6 @@ class Retriever(nn.Module):
         loss = loss_fn(similarity_matrix, labels)
         return loss
 
-
     def train_retriever(self, num_epochs=3, resume=False):
         """Train the retriever using the training data."""
         self.train()
@@ -193,8 +192,9 @@ class Retriever(nn.Module):
             self.log.info(f"Starting training for {num_epochs} epochs.")
 
         if resume:
-            self.load_model(os.path.join(self.log_dir, f"retriever_model_old"))
+            self.load_model(os.path.join(self.log_dir, f"retriever_model"))
 
+        self.log.info(f"Training retriever with {num_epochs} epochs.")
         for epoch in tqdm(range(num_epochs), desc="Training Epochs"):
             total_loss = 0
             for batch_idx, batch in enumerate(self.train_loader):
@@ -211,6 +211,8 @@ class Retriever(nn.Module):
 
                 total_loss += loss.item()
                 self.writer.add_scalar('Loss/batch', loss.item(), batch_idx)
+                if (batch_idx + 1) % 10 == 0:
+                    self.log.info(f"Epoch {epoch + 1}/{num_epochs}, Batch {batch_idx + 1}/{len(self.train_loader)}, Loss: {loss.item():.4f}")
 
             avg_loss = total_loss / len(self.train_loader)
             if (epoch + 1) % 10 == 0:
@@ -220,7 +222,7 @@ class Retriever(nn.Module):
             self.writer.add_scalar('Loss/epoch', avg_loss, epoch)
 
             if (epoch + 1) % 100 == 0:
-                save_directory = os.path.join(self.log_dir, f"retriever_model_old")
+                save_directory = os.path.join(self.log_dir, f"retriever_model")
                 self.save_model(save_directory)
 
     def test_retriever(self, k=5):
@@ -228,6 +230,8 @@ class Retriever(nn.Module):
         self.eval()
         correct_retrievals = 0
         total_queries = 0
+
+        self.log.info(f"Testing retriever with k={k}")
 
         for batch in tqdm(self.test_loader, desc="Testing"):
             queries, positive_docs = batch
@@ -283,7 +287,6 @@ class Retriever(nn.Module):
 
         # Log the learning rate to TensorBoard
         self.writer.add_scalar('Hyperparameters/Learning Rate', learning_rate, 0)
-        
         self.train_retriever(num_epochs=num_epochs, resume=resume)
         self.test_retriever()
 
