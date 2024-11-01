@@ -50,6 +50,7 @@ class Retriever(nn.Module):
         # Load the embedding model
         self.tokenizer = AutoTokenizer.from_pretrained(embedding_model_name, cache_dir=cache_dir)
         self.embedding_model = AutoModel.from_pretrained(embedding_model_name, cache_dir=cache_dir)
+
         self.embedding_model.to(self.device)
         self.embedding_dim = self.embedding_model.config.hidden_size
 
@@ -182,7 +183,7 @@ class Retriever(nn.Module):
         return loss
 
 
-    def train_retriever(self, train_loader, optimizer, num_epochs=3, resume=False):
+    def train_retriever(self, num_epochs=3, resume=False):
         """Train the retriever using the training data."""
         self.train()
         
@@ -196,7 +197,7 @@ class Retriever(nn.Module):
 
         for epoch in tqdm(range(num_epochs), desc="Training Epochs"):
             total_loss = 0
-            for batch_idx, batch in enumerate(train_loader):
+            for batch_idx, batch in enumerate(self.train_loader):
                 queries, positive_docs = batch
                 queries = list(queries)
 
@@ -204,14 +205,14 @@ class Retriever(nn.Module):
                 loss = self(queries)
 
                 # Backpropagation and optimization
-                optimizer.zero_grad()
+                self.optimizer.zero_grad()
                 loss.backward()
-                optimizer.step()
+                self.optimizer.step()
 
                 total_loss += loss.item()
                 self.writer.add_scalar('Loss/batch', loss.item(), batch_idx)
 
-            avg_loss = total_loss / len(train_loader)
+            avg_loss = total_loss / len(self.train_loader)
             if (epoch + 1) % 10 == 0:
                 self.log.info(f"Epoch {epoch + 1}/{num_epochs}, Loss: {avg_loss:.4f}")
 
@@ -222,29 +223,25 @@ class Retriever(nn.Module):
                 save_directory = os.path.join(self.log_dir, f"retriever_model_old")
                 self.save_model(save_directory)
 
-    def test_retriever(self, test_loader, corpus, k=5):
+    def test_retriever(self, k=5):
         """Test the retriever using the test data."""
         self.eval()
         correct_retrievals = 0
         total_queries = 0
 
-        # Build the FAISS index
-        corpus_embeddings = self.corpus_embeddings
-        self.build_index(corpus_embeddings)
-
-        for batch in tqdm(test_loader, desc="Testing"):
+        for batch in tqdm(self.test_loader, desc="Testing"):
             queries, positive_docs = batch
             queries = list(queries)
             positive_docs = list(positive_docs)
             total_queries += len(queries)
 
+            # Retrieve top-k documents for the batch of queries
+            retrieved_docs_batch = self.retrieve(queries, k=k)
+
             for i in range(len(queries)):
                 query = queries[i]
                 positive_document = positive_docs[i]
-
-                # Retrieve top-k documents for the query
-                retrieved_indices = self.retrieve(query, k=k)
-                retrieved_docs = [corpus[j] for j in retrieved_indices]
+                retrieved_docs = retrieved_docs_batch[i]
 
                 if positive_document in retrieved_docs:
                     correct_retrievals += 1
@@ -288,8 +285,8 @@ class Retriever(nn.Module):
         # Log the learning rate to TensorBoard
         self.writer.add_scalar('Hyperparameters/Learning Rate', learning_rate, 0)
         
-        self.train_retriever(self.train_loader, self.optimizer, num_epochs=num_epochs, resume=resume)
-        self.test_retriever(self.test_loader, self.corpus)
+        self.train_retriever(num_epochs=num_epochs, resume=resume)
+        self.test_retriever()
 
         save_directory = os.path.join(self.log_dir, f"retriever_model")
         self.save_model(save_directory)
@@ -305,6 +302,7 @@ if __name__ == "__main__":
         device='cuda' if torch.cuda.is_available() else 'cpu',
         cache_dir='./hugging_face_models'
     )
-    retriever.pipeline(learning_rate=1e-5, num_epochs=3)
-    query = "What is the capital of France?"
-    print(retriever.inference(query, top_k=5))
+    retriever.test_retriever()
+
+    #query = "What is the capital of France?"
+    #print(retriever.inference(query, top_k=5))

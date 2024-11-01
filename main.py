@@ -47,14 +47,16 @@ def main(args):
         model = do_evaluate(args)
     elif args.mode == "retriever":
         retriever = Retriever(
-        log_dir='./log',
-        embedding_model_name='sentence-transformers/all-MiniLM-L6-v2',
-        device='cuda' if torch.cuda.is_available() else 'cpu',
-        cache_dir='./hugging_face_models'
+            log_dir='./log',
+            embedding_model_name='sentence-transformers/all-MiniLM-L6-v2',
+            device='cuda' if torch.cuda.is_available() else 'cpu',
+            cache_dir='./hugging_face_models'
         )
-        retriever.pipeline(learning_rate=1e-6, num_epochs=10000, resume=False)
-        query = "What is the capital of France?"
-        print(retriever.inference(query, top_k=5))
+        retriever.load_model('./log/retriever_logs/retriever_model_old')
+        retriever.test_retriever()
+        #retriever.pipeline(learning_rate=1e-6, num_epochs=10000, resume=False)
+        #query = "What is the capital of France?"
+        #print(retriever.inference(query, top_k=5))
 
 
 def use_model(args):
