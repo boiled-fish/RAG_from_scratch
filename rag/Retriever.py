@@ -239,7 +239,6 @@ class Retriever(nn.Module):
             retrieved_docs_batch = self.retrieve(queries, k=k)
 
             for i in range(len(queries)):
-                query = queries[i]
                 positive_document = positive_docs[i]
                 retrieved_docs = retrieved_docs_batch[i]
 
