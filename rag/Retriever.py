@@ -286,10 +286,15 @@ class Retriever(nn.Module):
         # Log the learning rate to TensorBoard
         self.writer.add_scalar('Hyperparameters/Learning Rate', learning_rate, 0)
         self.train_retriever(num_epochs=num_epochs, resume=resume)
-        self.test_retriever()
 
+        # Save the retriever model
+        self.log.info("Saving retriever model")
         save_directory = os.path.join(self.log_dir, f"retriever_model")
         self.save_model(save_directory)
+
+        # Test the retriever
+        self.log.info("Testing retriever")
+        self.test_retriever()
 
         # Close the TensorBoard writer
         self.writer.close()
