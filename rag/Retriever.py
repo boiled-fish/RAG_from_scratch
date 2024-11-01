@@ -182,7 +182,7 @@ class Retriever(nn.Module):
         loss = loss_fn(similarity_matrix, labels)
         return loss
 
-    def train_retriever(self, num_epochs=3, resume=False):
+    def train_retriever(self, num_epochs=3, resume=False, start_epoch=0):
         """Train the retriever using the training data."""
         self.train()
         
@@ -193,9 +193,11 @@ class Retriever(nn.Module):
 
         if resume:
             self.load_model(os.path.join(self.log_dir, f"retriever_model"))
+        else:
+            start_epoch = 0
 
         self.log.info(f"Training retriever with {num_epochs} epochs.")
-        for epoch in tqdm(range(num_epochs), desc="Training Epochs"):
+        for epoch in tqdm(range(start_epoch, num_epochs), desc="Training Epochs"):
             total_loss = 0
             for batch_idx, batch in enumerate(self.train_loader):
                 queries, positive_docs = batch
@@ -213,7 +215,7 @@ class Retriever(nn.Module):
                 self.writer.add_scalar('Loss/batch', loss.item(), batch_idx)
 
             avg_loss = total_loss / len(self.train_loader)
-            if (epoch + 1) % 10 == 0:
+            if (epoch + 1) % 500 == 0:
                 self.log.info(f"Epoch {epoch + 1}/{num_epochs}, Loss: {avg_loss:.4f}")
 
             # Log the average epoch loss to TensorBoard
