@@ -1,212 +1,225 @@
 import os
-import requests
-from langchain.llms.ollama import Ollama
-from langchain.llms.openai import OpenAI
-from langchain.chains import RetrievalQA
-from langchain.vectorstores import Pinecone as PineconeVectorStore  # Official LangChain Pinecone
-from langchain.embeddings.base import Embeddings
-from langchain.schema import Document
-from langchain.text_splitter import CharacterTextSplitter
-from datasets import load_dataset
-from tqdm import tqdm
-import numpy as np
-from concurrent.futures import ThreadPoolExecutor
-import pinecone
-from pinecone import Pinecone as PineconeClient, ServerlessSpec, PodSpec
-import logging
-from typing import List, Union
-import torch
-from dataclasses import dataclass
+import json
+import glob
+from typing import List, Optional
+import PyPDF2
+import re
+import magic
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from langchain.document_loaders import TextLoader, UnstructuredFileLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain.vectorstores import Chroma
 
-class OllamaEmbeddings(Embeddings):
-    def __init__(self, 
-                 model_name: str = 'mxbai-embed-large:latest', 
-                 base_url='http://localhost:11434', 
-                 batch_size: int = 32):
-        self.model_name = model_name
-        self.base_url = base_url
-        self.batch_size = batch_size
-        self.device = torch.device("cpu")  # Ensure embeddings are processed on CPU
+from langchain_ollama import OllamaEmbeddings, ChatOllama
+from langchain.chat_models import ChatOpenAI  # Assuming ChatGPT-4 via OpenAI
 
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        embeddings = []
-        for i in range(0, len(texts), self.batch_size):
-            batch = texts[i:i + self.batch_size]
-            with ThreadPoolExecutor(max_workers=self.batch_size) as executor:
-                batch_embeddings = list(executor.map(self.embed_query, batch))
-            embeddings.extend(batch_embeddings)
-        return embeddings
-
-    def embed_query(self, text: str) -> List[float]:
-        url = f"{self.base_url}/api/embeddings"
-        payload = {
-            "model": self.model_name,
-            "prompt": text
-        }
-        headers = {'Content-Type': 'application/json'}
-        response = requests.post(url, json=payload, headers=headers)
-        if response.status_code == 200:
-            data = response.json()
-            embedding = data.get('embedding', [])
-            return embedding
-        else:
-            raise Exception(f"Failed to get embedding: {response.status_code}, {response.text}")
+from utils.custom_logger import CustomLogger
+from utils.rag_utils import load_documents
 
 class RAGModel:
-    def __init__(self, 
-                 k: int = 5, 
-                 generator_model: str = 'llama3:latest', 
-                 cache_dir: str = './cache',
-                 pinecone_api_key: str = 'YOUR_PINECONE_API_KEY',  # Replace with your Pinecone API key
-                 pinecone_env: str = 'YOUR_PINECONE_ENVIRONMENT'  # Replace with your Pinecone environment
-                ):
-        self.k = k
-        self.generator_model = generator_model
-        self.cache_dir = cache_dir
-        self.pinecone_api_key = pinecone_api_key
-        self.pinecone_env = pinecone_env
-        self.embedding = self._get_embedding()
-        self.pinecone_client = self._init_pinecone()
-        self.vector_store = self._build_vector_store()
-        self.retriever = self._get_retriever()
-        self.generator = self._get_generator()
+    def __init__(self, model_type: str, note_folder_path: str, top_k: int = 5):
+        """
+        Initialize the RAG system.
 
-    def _get_embedding(self):
-        return OllamaEmbeddings(
-            model_name='mxbai-embed-large:latest',
-            batch_size=32
+        :param model_type: Type of the generator model ('ChatGPT-4' or 'Ollama').
+        :param note_folder_path: Path to the folder containing notes/documents.
+        :param top_k: Number of top relevant documents to retrieve.
+        """
+        # Initialize the CustomLogger
+        self.logger = CustomLogger(log_dir_base='./log', logger_name="langchain_rag")
+        self.log_dir = self.logger.get_log_dir()
+        self.log = self.logger.get_logger()
+
+        # Set environment variables for LangChain
+        os.environ["LANGCHAIN_TRACING_V2"] = "true"
+        os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
+        os.environ["LANGCHAIN_API_KEY"] = ""
+        os.environ["LANGCHAIN_PROJECT"] = "ECE_RAG"
+
+        self.model_type = model_type.lower()
+        self.note_folder_path = note_folder_path
+        self.top_k = top_k
+
+        # Initialize conversation history
+        self.conversation_history = []
+
+        # Initialize embedding model
+        self.embedding_model = OllamaEmbeddings(model="nomic-embed-text")
+
+        # Load and process documents
+        documents = load_documents(self.note_folder_path)
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=0)
+        self.all_splits = text_splitter.split_documents(documents)
+
+        # Initialize vector store
+        self.vectorstore = Chroma.from_documents(
+            documents=self.all_splits,
+            embedding=self.embedding_model,
+            persist_directory=None  # In-memory; set path to persist
         )
 
-    def _init_pinecone(self):
-        # Initialize Pinecone client
-        pinecone_client = PineconeClient(
-            api_key=self.pinecone_api_key,
-            environment=self.pinecone_env
-        )
-        return pinecone_client
+        # Initialize generator model
+        self._initialize_generator_model()
 
-    def _build_vector_store(self):
-        # Define Pinecone index name
-        index_name = "rag-index"
-
-        # Create index if it does not exist
-        if index_name not in self.pinecone_client.list_indexes():
-            logger.info(f"Creating Pinecone index '{index_name}'...")
-            self.pinecone_client.create_index(
-                name=index_name,
-                dimension=768,  # Adjust based on your embedding dimension
-                metric="euclidean",
-                spec=PodSpec(pod_type="p1")  # Correctly specify the pod type using PodSpec
-            )
-            logger.info(f"Pinecone index '{index_name}' created.")
+    def _initialize_generator_model(self):
+        """
+        Initialize the generator model based on the current model_type.
+        """
+        if self.model_type == "chatgpt-4":
+            self.generator = ChatOpenAI(model_name="gpt-4", temperature=0.7)
+            self.log.info("Initialized ChatGPT-4 model.")
+        elif self.model_type == "ollama":
+            self.generator = ChatOllama(model="llama3:latest")
+            self.log.info("Initialized Ollama model.")
         else:
-            logger.info(f"Pinecone index '{index_name}' already exists.")
+            self.log.error("Unsupported model_type. Choose 'ChatGPT-4' or 'Ollama'.")
+            raise ValueError("Unsupported model_type. Choose 'ChatGPT-4' or 'Ollama'.")
 
-        # Connect to the Pinecone index
-        index = self.pinecone_client.Index(index_name)
+    def switch_model(self, new_model_type: str):
+        """
+        Switch the generator model to a different type.
 
-        # Load datasets
-        qa_dataset = load_dataset('rag-datasets/rag-mini-wikipedia', 'question-answer', cache_dir='./datasets')
-        corpus_dataset = load_dataset('rag-datasets/rag-mini-wikipedia', 'text-corpus', cache_dir='./datasets')
+        :param new_model_type: The new model type ('ChatGPT-4' or 'ollama').
+        """
+        if new_model_type.lower() not in ["ChatGPT-4", "Ollama"]:
+            self.log.error("Unsupported model_type. Choose 'ChatGPT-4' or 'Ollama'.")
+            return False
+        
+        self.model_type = new_model_type.lower()
+        self._initialize_generator_model()
+        self.log.info(f"Switched to model: {self.model_type}")
 
-        # Prepare documents
-        documents = []
+        return True
 
-        # Process corpus dataset
-        corpus_docs = [Document(page_content=entry['passage']) for entry in corpus_dataset['passages']]
-        documents.extend(corpus_docs)
+    def rewrite_query(self, user_input_json: str) -> str:
+        """
+        Rewrite the user query by incorporating conversation history.
 
-        # Process QA dataset
-        qa_data = qa_dataset['test']
-        qa_docs = []
-        for item in tqdm(qa_data, desc="Building QA documents"):
-            text = f"Question: {item['question']}\nAnswer: {item['answer']}"
-            qa_docs.append(Document(page_content=text))
-        documents.extend(qa_docs)
+        :param user_input_json: JSON string containing the user's query.
+        :param conversation_history: List of [sender, message] pairs.
+        :return: Rewritten query string.
+        """
+        user_input = json.loads(user_input_json).get("Query", "")
+        # Get the last two messages from conversation history
+        context_messages = self.conversation_history[-2:] if len(self.conversation_history) >= 2 else self.conversation_history
+        context = "\n".join([f"{msg[0]}: {msg[1]}" for msg in context_messages])
+        prompt = f"""Rewrite the following query by incorporating relevant context from the conversation history.
+The rewritten query should:
 
-        # Split documents
-        logger.info("Splitting documents...")
-        text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-        docs = text_splitter.split_documents(documents)
+- Preserve the core intent and meaning of the original query
+- Expand and clarify the query to make it more specific and informative for retrieving relevant context
+- Avoid introducing new topics or queries that deviate from the original query
+- DONT EVER ANSWER the Original query, but instead focus on rephrasing and expanding it into a new query
 
-        # Create embeddings in batches
-        logger.info("Creating embeddings with CPU processing...")
-        texts = [doc.page_content for doc in docs]
-        embeddings = []
+Return ONLY the rewritten query text, without any additional formatting or explanations.
 
-        batch_size = 1000  # Adjust as needed
-        for i in tqdm(range(0, len(texts), batch_size), desc="Creating embeddings"):
-            batch_texts = texts[i:i + batch_size]
-            batch_embeddings = self.embedding.embed_documents(batch_texts)
-            embeddings.extend(batch_embeddings)
+Conversation History:
+{context}
 
-        # Upsert to Pinecone
-        logger.info("Upserting embeddings to Pinecone...")
-        ids = [f"doc_{i}" for i in range(len(texts))]
-        vectors = embeddings
-        index.upsert(vectors=list(zip(ids, vectors)))
-        logger.info("Embeddings upserted to Pinecone.")
+Original query: [{user_input}]
 
-        # Initialize LangChain Pinecone vector store
-        vector_store = PineconeVectorStore(
-            embedding_function=self.embedding.embed_query,  # Ensure this matches your embedding setup
-            index=index
-        )
-
-        return vector_store
-
-    def _get_retriever(self):
-        return self.vector_store.as_retriever(search_kwargs={"k": self.k})
-
-    def _get_generator(self):
-        if self.generator_model in ['llama3:latest', 'gpt-4o', 'gpt-4o-mini', 'o1-preview', 'o1-mini']:
-            return Ollama(model=self.generator_model)
-        elif self.generator_model in ['openai-gpt-4', 'openai-gpt-3.5-turbo']:
-            return OpenAI(model_name=self.generator_model.replace('openai-', ''))
+Rewritten query:
+"""
+        # Use the generator to get the rewritten query
+        if self.model_type == "ollama":
+            response = self.generator.invoke(prompt)
         else:
-            raise ValueError(f"Unsupported generator model: {self.generator_model}")
+            response = self.generator(prompt)
 
-    def generate(self, query: str) -> dict:
-        qa = RetrievalQA.from_chain_type(
-            llm=self.generator,
-            retriever=self.retriever,
-            return_source_documents=True
-        )
-        return qa({"query": query})
+        # Extract the text from the AIMessage object
+        rewritten_query = response.content.strip()  # Assuming 'content' is the attribute holding the text
+        self.log.info(f"Rewritten query: {rewritten_query}")
 
-    def pipeline(self, query: str) -> dict:
-        return self.generate(query)
+        return rewritten_query
 
-    def add_documents(self, new_documents: List[Union[str, Document]], batch_size: int = 32):
-        if all(isinstance(doc, str) for doc in new_documents):
-            new_documents = [Document(page_content=text) for text in new_documents]
-        elif not all(isinstance(doc, Document) for doc in new_documents):
-            raise ValueError("new_documents must be a list of strings or Document objects")
+    def answer_query(self, query: str, attached_files: List[dict] = []) -> str:
+        """
+        Answer the user's query based on the conversation history and retrieved documents.
 
-        text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-        docs = text_splitter.split_documents(new_documents)
+        :param query: The user's current query.
+        :param conversation_history: List of [sender, message] pairs.
+        :return: The generated response.
+        """
+        if attached_files:
+            query = f"\n\nOriginal Query: {query}\n\nAttached Files:\n\n"
+            for file in attached_files:
+                content = "\n".join(file['file_content'])
+                query += f"{file['file_name']}:\n{content}\n\n"
+        
+        # Update conversation history with the new query
+        self.log.info(f"Updating conversation history with query: {query}")
+        self.conversation_history.append(["User", query])
 
-        # Embed and upsert new documents to Pinecone
-        logger.info("Adding new documents to Pinecone vector store...")
-        texts = [doc.page_content for doc in docs]
-        embeddings = self.embedding.embed_documents(texts)
-        ids = [f"doc_new_{i}" for i in range(len(texts))]  # Generate unique IDs
-        vectors = embeddings
-        self.pinecone_client.Index("rag-index").upsert(vectors=list(zip(ids, vectors)))
-        logger.info("New documents upserted to Pinecone.")
+        # Rewrite the query
+        user_input_json = json.dumps({"Query": query})
+        rewritten_query = self.rewrite_query(user_input_json)
 
-    def change_generator(self, new_generator: str):
-        self.generator = self._get_generator(new_generator)
+        # Embed the rewritten query
+        query_embedding = self.embedding_model.embed_query(rewritten_query)
+        self.log.info(f"Embedded rewritten query.")
+
+        # Retrieve top_k similar documents
+        similar_docs = self.vectorstore.similarity_search_by_vector(query_embedding, k=self.top_k)
+        self.log.info(f"Retrieved {len(similar_docs)} similar documents.")
+
+        # Combine retrieved documents into a single context
+        retrieved_text = "\n\n".join([doc.page_content for doc in similar_docs])
+        self.log.info(f"Combined retrieved documents into a single context.")
+
+        # Construct the prompt
+        prompt = f"""You are an AI Note assistant. Use the following retrieved information to answer the question.
+
+Retrieved Documents:
+{retrieved_text}
+
+Conversation History:
+{self._format_conversation_history()}
+
+Question: {rewritten_query}
+
+IMPORTANT: Answer ONLY the question, and nothing else. DO NOT include any other text or formatting.
+"""
+
+        # Generate the response
+        if self.model_type == "ollama":
+            response = self.generator.invoke(prompt)
+        else:
+            response = self.generator(prompt)
+
+        # Update conversation history with the response
+        self.conversation_history.append(["Assistant", response])
+        self.log.info(f"Updated conversation history with response.")
+        return response
+
+    def _format_conversation_history(self) -> str:
+        """
+        Format the conversation history for inclusion in the prompt.
+
+        :param conversation_history: List of [sender, message] pairs.
+        :return: Formatted conversation history string.
+        """
+        return "\n".join([f"{sender}: {message}" for sender, message in self.conversation_history])
+
+    def add_documents(self, new_folder_path: str):
+        """
+        Add new documents from a different folder to the vector store.
+
+        :param new_folder_path: Path to the new folder containing documents.
+        """
+        original_note_folder_path = self.note_folder_path
+        self.note_folder_path = new_folder_path
+        new_documents = load_documents(self.note_folder_path)
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=0)
+        new_splits = text_splitter.split_documents(new_documents)
+        self.vectorstore.add_documents(new_splits)
+        self.note_folder_path = original_note_folder_path
+        print(f"Added {len(new_splits)} new document chunks to the vector store.")
 
 if __name__ == "__main__":
-    # Initialize with Pinecone vector store
-    rag = RAGModel(
-        pinecone_api_key="4acd1cb7-e133-4cfb-a5fc-1267e5f91515",  # Ensure this API key is correct
-        pinecone_env=os.getenv('PINECONE_ENVIRONMENT')  # Ensure this environment variable is set
-    )
-    result = rag.generate("What is the capital of France?")
-    print(result)
+    # Initialize RAG with Ollama model and notes directory
+    rag = RAGModel(model_type="Ollama", note_folder_path="../test/langchain_test")
+
+    while True:
+        user_input = input("You: ")
+        response = rag.answer_query(user_input)
+        print("Assistant:", response.content)

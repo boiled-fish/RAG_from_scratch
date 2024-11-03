@@ -2,7 +2,9 @@ import os
 import torch
 from evaluate import load
 from nltk.translate.bleu_score import sentence_bleu
-
+import PyPDF2
+import re
+from langchain.document_loaders import TextLoader, UnstructuredFileLoader
 
 def save_model(model, save_directory="saved_model"):
     """Save the trained retriever and generator models."""
@@ -76,3 +78,70 @@ def load_checkpoint(model, optimizer, checkpoint_dir, filename='checkpoint.pth')
         return start_epoch
     else:
         return 0
+    
+def PDFLoader(file_path: str):
+    try:
+        with open(file_path, 'rb') as pdf_file:
+            pdf_reader = PyPDF2.PdfReader(pdf_file)
+            num_pages = len(pdf_reader.pages)
+            text = ''
+            for page_num in range(num_pages):
+                page = pdf_reader.pages[page_num]
+                if page.extract_text():
+                    text += page.extract_text() + " "
+            
+            # Normalize whitespace and clean up text
+            text = re.sub(r'\s+', ' ', text).strip()
+            
+            # Split text into chunks by sentences, respecting a maximum chunk size
+            sentences = re.split(r'(?<=[.!?]) +', text)
+            chunks = []
+            current_chunk = ""
+            for sentence in sentences:
+                if len(current_chunk) + len(sentence) + 1 < 1000:
+                    current_chunk += (sentence + " ").strip()
+                else:
+                    chunks.append(current_chunk)
+                    current_chunk = sentence + " "
+            if current_chunk:
+                chunks.append(current_chunk)
+            return chunks
+    except Exception as e:
+        print(f"[ERROR] Error processing PDF file: {e}")
+        return []
+    
+def load_documents(path):
+    """
+    Recursively load all supported documents from the note_folder_path.
+
+    :return: List of loaded documents.
+    """
+    loaders = []
+    for root, _, files in os.walk(path):
+        print(f"[INFO] Loading documents from {root}")
+        for file in files:
+            file_path = os.path.join(root, file)
+            ext = os.path.splitext(file)[1].lower()
+            try:
+                if ext == '.txt' or ext == '.md':
+                    loaders.append(TextLoader(file_path, encoding='utf-8'))
+                elif ext == '.pdf':
+                    loaders.append(PDFLoader(file_path))
+                else:
+                    # Use a generic loader for unsupported types
+                    loaders.append(UnstructuredFileLoader(file_path))
+            except Exception as e:
+                print(f"[ERROR] Failed to load {file_path}: {e}")
+
+    # Load all documents
+    documents = []
+    for loader in loaders:
+        try:
+            loaded_docs = loader.load()
+            documents.extend(loaded_docs)
+            print(f"[INFO] Loaded {len(loaded_docs)} documents from {loader}")
+        except Exception as e:
+            print(f"[ERROR] Error loading documents with {loader}: {e}")
+
+    print(f"[INFO] Loaded {len(documents)} documents.")
+    return documents

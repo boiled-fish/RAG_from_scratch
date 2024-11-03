@@ -52,12 +52,12 @@ def main(args):
         )
     elif args.mode == "retriever":
         retriever = Retriever(
-            log_dir='./log',
+            log_dir='./log/',
             embedding_model_name='sentence-transformers/all-MiniLM-L6-v2',
             device='cuda' if torch.cuda.is_available() else 'cpu',
             cache_dir='./hugging_face_models'
         )
-        retriever.pipeline(learning_rate=1e-6, num_epochs=50000, resume=False)
+        retriever.pipeline(learning_rate=1e-6, num_epochs=30000, resume=False)
         
         #query = "What is the capital of France?"
         #print(retriever.inference(query, top_k=5))

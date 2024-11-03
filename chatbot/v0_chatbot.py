@@ -1,4 +1,11 @@
+import warnings
+import os
 import sys
+
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(project_root)
+
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, 
     QHBoxLayout, QPushButton, QTextEdit, QComboBox, 
@@ -7,10 +14,13 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QMimeData, QEvent
 from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QFont, QTextDocument
 
-import warnings
-warnings.filterwarnings("ignore", category=DeprecationWarning)
+from langchain.document_loaders import TextLoader, UnstructuredFileLoader
 
-class ModernChatMessage(QFrame):
+from utils.custom_logger import CustomLogger
+from rag.rag_langchain import RAGModel
+from utils.rag_utils import PDFLoader
+
+class ChatMessage(QFrame):
     def __init__(self, text, is_user=True, parent=None):
         super().__init__(parent)
         self.setFrameShape(QFrame.StyledPanel)
@@ -36,9 +46,14 @@ class ModernChatMessage(QFrame):
         if not is_user:
             layout.addStretch()
 
-class ChatbotApp(QMainWindow):
-    def __init__(self):
+class NoteHelper(QMainWindow):
+    def __init__(self, model_type: str, note_folder_path: str):
         super().__init__()
+
+        self.logger = CustomLogger(log_dir_base='./log', logger_name="note_helper")
+        self.log_dir = self.logger.get_log_dir()
+        self.log = self.logger.get_logger()
+
         self.setWindowTitle("AI Chat Assistant")
         self.setGeometry(100, 100, 1000, 700)
 
@@ -110,6 +125,14 @@ class ChatbotApp(QMainWindow):
 
         self.setup_ui()
 
+        self.model_type = model_type
+        self.note_folder_path = note_folder_path
+        self.log.info(f"Initializing NoteHelper with model_type: {model_type} and note_folder_path: {note_folder_path}")
+        self.model = RAGModel(model_type=model_type, note_folder_path=note_folder_path)
+
+        self.current_files = []
+        self.current_files_num = 0
+
     def setup_ui(self):
         # 头部，选择模型
         header = QWidget()
@@ -119,7 +142,7 @@ class ChatbotApp(QMainWindow):
 
         model_label = QLabel()
         self.model_combo = QComboBox()
-        self.model_combo.addItems(["GPT-4", "GPT-3.5", "Claude-2"])
+        self.model_combo.addItems(["Ollama", "ChatGPT-4"])
 
         header_layout.addWidget(model_label)
         header_layout.addWidget(self.model_combo)
@@ -230,7 +253,7 @@ class ChatbotApp(QMainWindow):
         self.user_input.setFixedHeight(new_height)
 
     def add_message(self, text, is_user=True):
-        message = ModernChatMessage(text, is_user)
+        message = ChatMessage(text, is_user)
         self.chat_layout.insertWidget(self.chat_layout.count() - 1, message)
         # 自动滚动到底部
         self.scroll.verticalScrollBar().setValue(self.scroll.verticalScrollBar().maximum())
@@ -242,30 +265,59 @@ class ChatbotApp(QMainWindow):
     def dropEvent(self, event: QDropEvent):
         for url in event.mimeData().urls():
             file_path = url.toLocalFile()
-            if file_path.lower().endswith(('.pdf', '.txt')):
+            if file_path.lower().endswith(('.pdf', '.txt', '.md', '.docx', '.pptx', '.xlsx', '.xls', 'py', 'ipynb', 'csv', 'json')):
                 self.process_file(file_path)
+            else:
+                self.add_message(f"[WARNING] Unsupported file type: {file_path}", False)
 
     def process_file(self, file_path):
-        # 文件处理的占位符函数
-        print(f"Processing file: {file_path}")
-        self.add_message(f"正在处理文件: {file_path}", False)
+        self.log.info(f"Processing file: {file_path}")
+
+        ext = os.path.splitext(file_path)[1].lower()
+        file_name = os.path.basename(file_path)
+        file_data = {
+            "file_name": file_name,
+            "file_content": []
+        }
+        try:
+            if ext == '.txt' or ext == '.md':
+                loader = TextLoader(file_path, encoding='utf-8')
+                loader_docs = loader.load()
+                file_data["file_content"].extend([doc.page_content for doc in loader_docs])
+            elif ext == '.pdf':
+                file_data["file_content"].extend(PDFLoader(file_path))
+            else:
+                loader = UnstructuredFileLoader(file_path)
+                loaded_docs = loader.load()
+                file_data["file_content"].extend([doc.page_content for doc in loaded_docs])
+        except Exception as e:
+            self.log.error(f"[ERROR] Error processing file: {file_path}: {e}")  
+
+        self.add_message(f"[INFO] Attached file: {file_name}", False)
+        self.current_files.append(file_data)
+        self.current_files_num += 1
 
     def send_message(self):
         user_message = self.user_input.toPlainText().strip()
+        
         if user_message:
             self.add_message(user_message, True)
             self.user_input.clear()
 
-            # 获取选定的模型
             selected_model = self.model_combo.currentText()
 
-            # 调用聊天机器人响应函数（占位符）
-            bot_response = self.get_chatbot_response(user_message, selected_model)
+            bot_response = self.get_chatbot_response(user_message, self.current_files, selected_model)
+            self.current_files = []
+            self.current_files_num = 0
+
             self.add_message(bot_response, False)
 
-    def get_chatbot_response(self, user_input, model):
-        # 聊天机器人响应的占位符函数
-        return f"这是使用 {model} 的占位符响应。"
+    def get_chatbot_response(self, user_input, attached_files, model):
+        if model != self.model_type:
+            self.model_type = model
+            self.model.switch_model(model)
+
+        return self.model.answer_query(user_input, attached_files).content
 
     def eventFilter(self, obj, event):
         if obj == self.user_input and event.type() == QEvent.KeyPress:
@@ -286,6 +338,6 @@ if __name__ == "__main__":
     font = QFont("微软雅黑", 10)
     app.setFont(font)
 
-    chatbot = ChatbotApp()
+    chatbot = NoteHelper(model_type="Ollama", note_folder_path="./test/langchain_test")
     chatbot.show()
     sys.exit(app.exec_())

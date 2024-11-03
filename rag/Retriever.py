@@ -30,7 +30,7 @@ class WikiQADataset(Dataset):
 class Retriever(nn.Module):
     def __init__(self, log_dir='./log', embedding_model_name='sentence-transformers/all-MiniLM-L6-v2', test_size=0.2, load_dataset_ratio=1.0, device=None, cache_dir=None):
         super(Retriever, self).__init__()
-        self.logger = CustomLogger(log_dir_base=log_dir, logger_name="retriever_logs")
+        self.logger = CustomLogger(log_dir_base=log_dir, logger_name="retriever_logs_30000Epochs")
         self.log_dir = self.logger.get_log_dir()
 
         # Use a separate logger to avoid overwriting the logging module
