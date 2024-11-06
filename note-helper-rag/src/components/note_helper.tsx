@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Upload, Send, Bot, User, Folder } from 'lucide-react'
+import { debounce } from 'lodash';
 
 declare module 'react' {
   interface InputHTMLAttributes<T> extends HTMLAttributes<T> {
@@ -56,9 +57,12 @@ function Component() {
 
   useEffect(() => {
     if (scrollAreaRef.current) {
-      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight
+      const scrollContainer = scrollAreaRef.current;
+      setTimeout(() => {
+        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+      }, 50);
     }
-  }, [messages])
+  }, [messages, isLoading]);
 
   const handleSend = async () => {
     if (isProcessingNotes) {
@@ -255,6 +259,7 @@ function Component() {
                   placeholder="e.g., C:\Users\YourName\Documents\Notes"
                   value={manualPath}
                   onChange={(e) => setManualPath(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleManualPathSubmit()}
                   className="border-gray-200"
                 />
                 <div className="flex gap-3">
@@ -304,25 +309,70 @@ function Component() {
           </CardContent>
         </Card>
 
-        <ScrollArea className="flex-grow mx-4 mb-4 p-4 rounded-xl bg-white border border-gray-200 shadow-sm" ref={scrollAreaRef}>
+        <ScrollArea 
+          className="flex-grow mx-4 mb-4 p-4 rounded-xl bg-white border border-gray-200 shadow-sm overflow-y-auto" 
+          style={{ maxHeight: 'calc(100vh - 200px)' }}
+          ref={scrollAreaRef}
+        >
           {messages.map((message, index) => (
             <div key={index} className={`mb-4 ${message.isUser ? 'text-right' : 'text-left'}`}>
-              <div className={`inline-block p-3 rounded-xl ${
+              <div className={`inline-block p-4 rounded-xl max-w-[80%] ${
                 message.isUser 
                   ? 'bg-blue-500 text-white' 
                   : 'bg-gray-100 text-gray-900'
               }`}>
-                <div className="flex items-center mb-2">
-                  {message.isUser ? <User className="mr-2" /> : <Bot className="mr-2" />}
-                  <span className="font-medium">{message.isUser ? 'You' : 'AI'}</span>
+                <div className="flex items-center mb-3">
+                  {message.isUser ? <User className="mr-2 h-5 w-5" /> : <Bot className="mr-2 h-5 w-5" />}
+                  <span className="font-semibold">{message.isUser ? 'You' : 'AI'}</span>
                 </div>
-                <p>{message.text}</p>
+                <div className="prose prose-sm dark:prose-invert max-w-none">
+                  {message.text.split('\n').map((paragraph, i) => {
+                    // 处理标题 (# 开头)
+                    if (paragraph.startsWith('# ')) {
+                      return <h1 key={i} className="text-xl font-bold mb-2">{paragraph.substring(2)}</h1>;
+                    }
+                    // 处理子标题 (## 开头)
+                    if (paragraph.startsWith('## ')) {
+                      return <h2 key={i} className="text-lg font-bold mb-2">{paragraph.substring(3)}</h2>;
+                    }
+                    // 处理列表项 (- 或 * 开头)
+                    if (paragraph.trim().startsWith('- ') || paragraph.trim().startsWith('* ')) {
+                      return <li key={i} className="ml-4">{paragraph.substring(2)}</li>;
+                    }
+                    // 处理加粗文本 (**text**)
+                    const boldText = paragraph.replace(
+                      /\*\*(.*?)\*\*/g, 
+                      '<strong>$1</strong>'
+                    );
+                    // 处理代码片段 (`code`)
+                    const codeText = boldText.replace(
+                      /`(.*?)`/g,
+                      '<code class="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded">$1</code>'
+                    );
+                    
+                    // 如果是空行，添加额外的间距
+                    if (paragraph.trim() === '') {
+                      return <div key={i} className="h-4"></div>;
+                    }
+                    
+                    return (
+                      <p 
+                        key={i} 
+                        className="mb-2 last:mb-0"
+                        dangerouslySetInnerHTML={{ __html: codeText }}
+                      />
+                    );
+                  })}
+                </div>
                 {message.files && message.files.length > 0 && (
-                  <div className="mt-2 text-sm">
-                    <p>Attached files:</p>
-                    <ul>
+                  <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                    <p className="text-sm font-medium mb-1">Attached files:</p>
+                    <ul className="text-sm space-y-1">
                       {message.files.map((file, fileIndex) => (
-                        <li key={fileIndex}>{file.file_name}</li>
+                        <li key={fileIndex} className="flex items-center">
+                          <span className="mr-2">📎</span>
+                          {file.file_name}
+                        </li>
                       ))}
                     </ul>
                   </div>

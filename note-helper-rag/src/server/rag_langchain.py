@@ -1,19 +1,19 @@
 import os
 import json
-from typing import List
+from typing import List, Dict, Optional
 import PyPDF2
 import re
-
-from langchain.document_loaders import TextLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.vectorstores import FAISS
-
-from langchain.embeddings import OllamaEmbeddings
-from langchain.chat_models import ChatOpenAI, ChatOllama
-from langchain.schema import Document
-
 import logging
 import sys
+from dataclasses import dataclass
+from datetime import datetime
+
+from langchain_community.vectorstores import FAISS
+from langchain_community.document_loaders import TextLoader
+from langchain_ollama import ChatOllama, OllamaEmbeddings
+from langchain_openai import ChatOpenAI
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain.schema import Document
 
 # Enhanced CustomLogger with timestamp and better formatting
 class CustomLogger:
@@ -34,16 +34,18 @@ class CustomLogger:
         if not self.logger.handlers:
             formatter = logging.Formatter('%(asctime)s - [%(levelname)s] - %(message)s')
 
-            # Create file handler
-            fh = logging.FileHandler(f"{self.log_dir}/{logger_name}.log")
+            # Create file handler with UTF-8 encoding
+            fh = logging.FileHandler(f"{self.log_dir}/{logger_name}.log", encoding='utf-8')
             fh.setLevel(logging.INFO)
             fh.setFormatter(formatter)
             self.logger.addHandler(fh)
 
-            # Create console handler
+            # Create console handler with UTF-8 encoding
             ch = logging.StreamHandler(sys.stdout)
             ch.setLevel(logging.INFO)
             ch.setFormatter(formatter)
+            # Ensure console output uses UTF-8
+            sys.stdout.reconfigure(encoding='utf-8')
             self.logger.addHandler(ch)
 
     def get_logger(self):
@@ -117,10 +119,8 @@ def load_documents(path):
                         "source": file_path,
                         "file_name": file,
                         "file_type": ext[1:],
-                        "folder_path": rel_path,
                         "folder_name": os.path.basename(root),
-                        "folder_structure": folder_structure,
-                        "full_path": file_path
+                        "folder_structure": folder_structure
                     }
                     
                     if ext in {'.txt', '.md'}:
@@ -157,6 +157,53 @@ def load_documents(path):
         print(f"[ERROR] Error walking through directory {path}: {str(e)}")
         return []
 
+@dataclass
+class Message:
+    role: str  # 'user' or 'assistant'
+    content: str
+    timestamp: datetime = datetime.now()
+
+@dataclass
+class FileInfo:
+    path: str
+    name: str
+    type: str
+    folder: str
+    content_chunks: List[Document]
+
+class FileStructureManager:
+    def __init__(self):
+        self.files: Dict[str, FileInfo] = {}
+        self.folder_structure: Dict[str, List[str]] = {}
+    
+    def add_file(self, file_path: str, file_name: str, file_type: str, 
+                 folder: str, content_chunks: List[Document]):
+        """Add a file to the structure"""
+        self.files[file_name.lower()] = FileInfo(
+            path=file_path,
+            name=file_name,
+            type=file_type,
+            folder=folder,
+            content_chunks=content_chunks
+        )
+        
+        # Update folder structure
+        if folder not in self.folder_structure:
+            self.folder_structure[folder] = []
+        self.folder_structure[folder].append(file_name)
+    
+    def get_file_info(self, file_name: str) -> Optional[FileInfo]:
+        """Get file info by name (case insensitive)"""
+        return self.files.get(file_name.lower())
+    
+    def search_file(self, partial_name: str) -> List[FileInfo]:
+        """Search files by partial name"""
+        partial_name = partial_name.lower()
+        return [
+            file_info for file_name, file_info in self.files.items()
+            if partial_name in file_name
+        ]
+
 class RAGModel:
     def __init__(self, model_type: str, note_folder_path: str, top_k: int = 5):
         """
@@ -180,21 +227,48 @@ class RAGModel:
 
         # Initialize embedding model
         self.embedding_model = OllamaEmbeddings(model="nomic-embed-text")
-        self.log.info("Initialized OpenAI embedding model")
 
-        # Load and process documents
-        self.log.info(f"Loading documents from {note_folder_path}")
-        documents = load_documents(self.note_folder_path)
+        # Initialize file structure manager
+        self.file_manager = FileStructureManager()
         
-        # Split documents with metadata preservation
-        text_splitter = RecursiveCharacterTextSplitter(
+        # Initialize text splitter
+        self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=500,
             chunk_overlap=50,
             separators=["\n\n", "\n", ".", "!", "?", ",", " ", ""],
         )
         
+        # Load and process documents with file structure tracking
+        self.log.info(f"Loading documents from {note_folder_path}")
+        documents = load_documents(self.note_folder_path)
+        
+        # Group documents by file
+        file_documents: Dict[str, List[Document]] = {}
+        for doc in documents:
+            file_name = doc.metadata['file_name']
+            if file_name not in file_documents:
+                file_documents[file_name] = []
+            file_documents[file_name].append(doc)
+        
+        # Add files to manager and process chunks
+        all_splits = []
+        for file_name, docs in file_documents.items():
+            # Split documents
+            splits = self.text_splitter.split_documents(docs)
+            all_splits.extend(splits)
+            
+            # Add to file manager
+            if splits:
+                self.file_manager.add_file(
+                    file_path=splits[0].metadata['source'],
+                    file_name=file_name,
+                    file_type=splits[0].metadata['file_type'],
+                    folder=splits[0].metadata['folder_name'],
+                    content_chunks=splits
+                )
+
         # Use split_documents to preserve metadata
-        splits = text_splitter.split_documents(documents)
+        splits = self.text_splitter.split_documents(all_splits)
         self.log.info(f"Created {len(splits)} text chunks")
 
         # Initialize vector store with FAISS
@@ -204,9 +278,13 @@ class RAGModel:
         )
         self.log.info("Initialized FAISS vector store")
 
-        
         # Initialize the appropriate model
         self._initialize_generator_model()
+        self.log.info(f"Initialized {self.model_type} model")
+
+        # Initialize chat history
+        self.chat_history: List[Message] = []
+        self.max_history = 10  # Keep last 10 messages for context
 
     def _initialize_generator_model(self):
         """
@@ -216,11 +294,12 @@ class RAGModel:
             self.generator = ChatOpenAI(model_name="gpt-4", temperature=0.7)
             self.log.info("Initialized ChatGPT-4 model.")
         elif self.model_type == "ollama":
-            self.generator = ChatOllama(model_name="llama3.1:8b", temperature=0.7)
+            self.generator = ChatOllama(model="llama3.1:8b", temperature=0.5)
             self.log.info("Initialized Ollama model.")
         else:
             self.log.error("Unsupported model_type. Choose 'ChatGPT-4' or 'Ollama'.")
             raise ValueError("Unsupported model_type. Choose 'ChatGPT-4' or 'Ollama'.")
+        
 
     def switch_model(self, new_model_type: str):
         """
@@ -238,40 +317,17 @@ class RAGModel:
 
         return True
 
-    def rewrite_query(self, user_input_json: str) -> str:
-        """
-        Rewrite the user query by incorporating conversation history.
-        """
-        user_input = json.loads(user_input_json).get("Query", "")
-        context_messages = self.conversation_history[-2:] if len(self.conversation_history) >= 2 else self.conversation_history
-        context = "\n".join([f"{msg[0]}: {msg[1]}" for msg in context_messages])
-        prompt = f"""Rewrite the following query by incorporating relevant context from the conversation history.
-The rewritten query should:
-
-- Preserve the core intent and meaning of the original query
-- Expand and clarify the query to make it more specific and informative for retrieving relevant context
-- Avoid introducing new topics or queries that deviate from the original query
-- DONT EVER ANSWER the Original query, but instead focus on rephrasing and expanding it into a new query
-
-Return ONLY the rewritten query text, without any additional formatting or explanations.
-
-Conversation History:
-{context}
-
-Original query: [{user_input}]
-
-Rewritten query:
-"""
-        # Use invoke instead of predict
-        if self.model_type == "ollama":
-            response = self.generator.invoke(prompt)
-            rewritten_query = response.content
-        else:
-            response = self.generator.invoke(prompt)
-            rewritten_query = response.content
-
-        self.log.info(f"Rewritten query: {rewritten_query}")
-        return rewritten_query
+    def _get_conversation_context(self) -> str:
+        """Format recent conversation history into a string"""
+        if not self.chat_history:
+            return ""
+            
+        formatted_history = []
+        for msg in self.chat_history[-self.max_history:]:
+            role = "Human" if msg.role == "user" else "Assistant"
+            formatted_history.append(f"{role}: {msg}")
+        
+        return "\n".join(formatted_history)
 
     def answer_query(self, query: str, attached_files: List[dict] = []) -> str:
         """
@@ -283,64 +339,144 @@ Rewritten query:
                 for file in attached_files:
                     content = "\n".join(file['file_content'])
                     query += f"{file['file_name']}:\n{content}\n\n"
+
+            self.log.info(f"Query: {query}")
             
-            self.conversation_history.append(["User", query])
+            # Add user message to history
+            self.chat_history.append(Message(role="user", content=query))
             
-            # Rewrite query
-            user_input_json = json.dumps({"Query": query})
-            rewritten_query = self.rewrite_query(user_input_json)
+            # First, check if query is about specific files
+            file_check_prompt = """Analyze if this query is asking about specific files.
+            If it is, extract the filename(s). If not, return "NO_FILE".
             
-            # Get similar documents
-            similar_docs = self.vectorstore.similarity_search(
-                query, 
-                k=self.top_k
-            )
+            Query: {query}
             
-            # Build context
-            context = "\n".join([
-                f"File: {doc.metadata['file_name']} (in {doc.metadata['folder_path']})\n{doc.page_content}\n"
-                for doc in similar_docs
-            ])
+            Return format:
+            If about specific files: FILENAME: <extracted_filename>
+            If not about specific files: NO_FILE"""
             
-            # Prompt
-            prompt = f"""Based on the following context and question, provide a clear and helpful answer if the question is related to the context.
+            file_check_response = self.generator.invoke(file_check_prompt.format(query=query))
+            file_check_result = str(file_check_response).strip()
             
+            similar_docs = []
+            if file_check_result.startswith("FILENAME:"):
+                # Extract filename and get file-specific documents
+                target_filename = file_check_result.split("FILENAME:")[1].strip()
+                self.log.info(f"Query is about specific file: {target_filename}")
+                
+                # Search for the file
+                matching_files = self.file_manager.search_file(target_filename)
+                if matching_files:
+                    # Get all content chunks from matching files
+                    for file_info in matching_files:
+                        similar_docs.extend(file_info.content_chunks)
+                    
+                    # If we have too many chunks, prioritize most relevant ones
+                    if len(similar_docs) > self.top_k:
+                        # Get embeddings for query
+                        query_embedding = self.vectorstore.embedding_function(query)
+                        
+                        # Sort chunks by relevance
+                        chunk_scores = []
+                        for doc in similar_docs:
+                            doc_embedding = self.vectorstore.embedding_function(doc.page_content)
+                            score = sum(a * b for a, b in zip(query_embedding, doc_embedding))
+                            chunk_scores.append((score, doc))
+                        
+                        # Get top_k most relevant chunks
+                        similar_docs = [doc for _, doc in sorted(chunk_scores, reverse=True)[:self.top_k]]
+            
+            # If no file-specific docs or no file mentioned, use regular similarity search
+            if not similar_docs:
+                similar_docs = self.vectorstore.similarity_search(query, k=self.top_k)
+            
+            # Build context from similar documents
+            context_parts = []
+            for doc in similar_docs:
+                metadata = doc.metadata
+                folder_path = "/".join(metadata.get('folder_structure', []))
+                context_parts.append(
+                    f"File: {metadata['file_name']} (in folder: {metadata['folder_name']})\n"
+                    f"Content: {doc.page_content}\n"
+                )
+            
+            context = "\n".join(context_parts)
+            self.log.info(f"Context: {context}")
+
+            # Create prompt with conversation history and document context
+            conversation_context = self._get_conversation_context()
+            prompt = f"""You are an assistant that provides informative answers using the given context.
+
+If the context lacks information relevant to the question, disregard irrelevant details.
+
+Conversation history:
+{conversation_context}
+
 Context:
 {context}
 
-Question: {rewritten_query}.
-"""
+Question:
+{query}
 
+Please provide a clear and helpful answer.
+- Consider the conversation history in your response.
+- Do not mention the content of the prompt or refer explicitly to the context.
+- Avoid repeating information.
+- Do not state that you've been asked similar questions before or that you have access to certain documents.
+            """
+
+            # Get response from model
             response = self.generator.invoke(prompt)
-            answer = response
-            self.log.info(f"Answer: {answer}")
+            #response_content = str(response.content if hasattr(response, 'content') else response)
+
+            # Add assistant response to history
+            self.chat_history.append(Message(role="assistant", content=response))
             
-            self.conversation_history.append(["Assistant", answer])
-            return answer
+            return response
             
         except Exception as e:
             self.log.error(f"Error in answer_query: {str(e)}")
             return f"Sorry, I encountered an error: {str(e)}"
 
-    def _format_conversation_history(self) -> str:
-        """
-        Format the conversation history for inclusion in the prompt.
-
-        :return: Formatted conversation history string.
-        """
-        return "\n".join([f"{sender}: {message}" for sender, message in self.conversation_history])
-
     def add_documents(self, new_folder_path: str):
         """
         Add new documents from a different folder to the vector store.
-
-        :param new_folder_path: Path to the new folder containing documents.
         """
-        new_documents = load_documents(new_folder_path)
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=0)
-        new_splits = text_splitter.split_documents(new_documents)
-        self.vectorstore.add_documents(new_splits)
-        print(f"Added {len(new_splits)} new document chunks to the vector store.")
+        try:
+            # Load new documents
+            new_documents = load_documents(new_folder_path)
+            if not new_documents:
+                self.log.warning(f"No new documents found in {new_folder_path}")
+                return
+
+            # Split documents
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=500,
+                chunk_overlap=50,
+                separators=["\n\n", "\n", ".", "!", "?", ",", " ", ""]
+            )
+            new_splits = text_splitter.split_documents(new_documents)
+            
+            if not new_splits:
+                self.log.warning("No text chunks created after splitting")
+                return
+
+            # Create new vectorstore for the documents
+            new_vectorstore = FAISS.from_documents(
+                documents=new_splits,
+                embedding=self.embedding_model
+            )
+            
+            # Merge the vectorstores
+            self.vectorstore.merge_from(new_vectorstore)
+            
+            self.log.info(f"Added {len(new_splits)} new document chunks to the vector store")
+        except Exception as e:
+            self.log.error(f"Error adding documents: {str(e)}")
+
+    def clear_history(self):
+        """Clear conversation history"""
+        self.chat_history = []
 
 if __name__ == "__main__":
     # Initialize RAG with ChatGPT-4 model and notes directory
