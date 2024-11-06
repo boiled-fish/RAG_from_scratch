@@ -218,56 +218,60 @@ function Component() {
           setManualPath('');
         }}
       >
-        <DialogContent className="bg-white" onPointerDownOutside={(e) => e.preventDefault()}>
+        <DialogContent className="bg-white max-w-md w-full p-6 rounded-xl border shadow-lg">
           <DialogHeader>
-            <DialogTitle className="text-black">Select Notes Folder</DialogTitle>
+            <DialogTitle className="text-2xl font-bold text-gray-900">
+              Select Notes Folder
+            </DialogTitle>
+            <p className="text-gray-600 mt-2">
+              Please choose how you want to specify the notes folder:
+            </p>
           </DialogHeader>
-          <div className="flex flex-col gap-4">
+          
+          <div className="flex flex-col gap-4 mt-6">
             {!showManualInput ? (
               <>
-                <p className="text-black">Please choose how you want to specify the notes folder:</p>
-                <div className="flex flex-col gap-2">
-                  <Button 
-                    variant="outline" 
-                    onClick={handleUseDefault}
-                    className="text-black hover:bg-black hover:text-white transition-colors"
-                  >
-                    Use Default
-                  </Button>
-                  <Button 
-                    variant="outline" 
-                    onClick={() => setShowManualInput(true)}
-                    className="text-black hover:bg-black hover:text-white transition-colors"
-                  >
-                    Enter Path Manually
-                  </Button>
-                </div>
+                <Button
+                  variant="outline"
+                  onClick={handleUseDefault}
+                  className="w-full h-14 justify-start gap-3 text-gray-700 hover:bg-gray-50 border-gray-200"
+                >
+                  <Folder className="h-5 w-5 text-blue-500" />
+                  Use Default
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowManualInput(true)}
+                  className="w-full h-14 justify-start gap-3 text-gray-700 hover:bg-gray-50 border-gray-200"
+                >
+                  <Input className="h-5 w-5 text-blue-500" />
+                  Enter Path Manually
+                </Button>
               </>
             ) : (
               <>
-                <p className="text-black">Enter the absolute path to your notes folder:</p>
                 <Input
                   type="text"
                   placeholder="e.g., C:\Users\YourName\Documents\Notes"
                   value={manualPath}
                   onChange={(e) => setManualPath(e.target.value)}
-                  className="mb-2"
+                  className="border-gray-200"
                 />
-                <div className="flex justify-between gap-2">
-                  <Button 
+                <div className="flex gap-3">
+                  <Button
                     onClick={handleManualPathSubmit}
-                    className="flex-1 text-black hover:bg-black hover:text-white transition-colors"
+                    className="flex-1 bg-blue-500 hover:bg-blue-600 text-white"
                     disabled={!manualPath}
                   >
                     Confirm
                   </Button>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={() => {
                       setShowManualInput(false);
                       setManualPath('');
                     }}
-                    className="flex-1 text-black hover:bg-black hover:text-white transition-colors"
+                    className="flex-1 text-gray-700 border-gray-200 hover:bg-gray-50"
                   >
                     Back
                   </Button>
@@ -278,17 +282,17 @@ function Component() {
         </DialogContent>
       </Dialog>
 
-      <div className="flex flex-col h-screen bg-gray-100 dark:bg-gray-900">
-        <Card className="m-4">
+      <div className="flex flex-col h-screen bg-gray-50">
+        <Card className="m-4 bg-white border-gray-200 shadow-sm">
           <CardContent className="p-4">
             <div className="flex justify-between items-center">
-              <h1 className="text-2xl font-bold">Note Helper</h1>
+              <h1 className="text-2xl font-bold text-gray-900">Note Helper</h1>
               <Select 
                 value={model} 
                 onValueChange={setModel} 
                 disabled={isProcessingNotes}
               >
-                <SelectTrigger className={`w-[180px] ${isProcessingNotes ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                <SelectTrigger className="w-[180px] bg-white border-gray-200">
                   <SelectValue placeholder="Select Model" />
                 </SelectTrigger>
                 <SelectContent>
@@ -300,13 +304,17 @@ function Component() {
           </CardContent>
         </Card>
 
-        <ScrollArea className="flex-grow mx-4 mb-4 p-4 rounded-xl bg-white dark:bg-gray-800" ref={scrollAreaRef}>
+        <ScrollArea className="flex-grow mx-4 mb-4 p-4 rounded-xl bg-white border border-gray-200 shadow-sm" ref={scrollAreaRef}>
           {messages.map((message, index) => (
             <div key={index} className={`mb-4 ${message.isUser ? 'text-right' : 'text-left'}`}>
-              <div className={`inline-block p-3 rounded-xl ${message.isUser ? 'bg-blue-500 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}>
+              <div className={`inline-block p-3 rounded-xl ${
+                message.isUser 
+                  ? 'bg-blue-500 text-white' 
+                  : 'bg-gray-100 text-gray-900'
+              }`}>
                 <div className="flex items-center mb-2">
                   {message.isUser ? <User className="mr-2" /> : <Bot className="mr-2" />}
-                  <span className="font-bold">{message.isUser ? 'You' : 'AI'}</span>
+                  <span className="font-medium">{message.isUser ? 'You' : 'AI'}</span>
                 </div>
                 <p>{message.text}</p>
                 {message.files && message.files.length > 0 && (
@@ -323,43 +331,42 @@ function Component() {
             </div>
           ))}
           {isLoading && (
-            <div className="text-center">
+            <div className="text-center text-gray-600">
               <p>Assistant is thinking...</p>
             </div>
           )}
         </ScrollArea>
 
-        <div className="flex items-center space-x-2 m-4">
+        <div className="flex items-center gap-3 mx-4 mb-4">
           <Input
             type="text"
-            placeholder={isProcessingNotes ? "Please wait while processing notes..." : "Type your message..."}
+            placeholder={isProcessingNotes ? "Please wait..." : "Type your message..."}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-            className="flex-grow rounded-xl"
+            className="flex-grow bg-white border-gray-200"
             disabled={isProcessingNotes || isLoading}
           />
-          <label htmlFor="file-upload" className={`cursor-pointer ${isProcessingNotes || isLoading ? 'opacity-50 pointer-events-none' : ''}`}>
-            <Upload className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200" />
-          </label>
-          <input
-            id="file-upload"
-            type="file"
-            multiple
-            className="hidden"
-            onChange={handleFileAttach}
+          <Button
+            variant="outline"
+            size="icon"
+            className="border-gray-200 hover:bg-gray-50"
             disabled={isProcessingNotes || isLoading}
-          />
-          <Button 
-            onClick={handleSend} 
+          >
+            <label htmlFor="file-upload" className="cursor-pointer">
+              <Upload className="h-5 w-5 text-gray-500" />
+            </label>
+          </Button>
+          <Button
+            onClick={handleSend}
             disabled={isProcessingNotes || isLoading}
-            className={isProcessingNotes || isLoading ? 'opacity-50' : ''}
+            className="bg-blue-500 hover:bg-blue-600 text-white px-6"
           >
             <Send className="mr-2 h-4 w-4" /> Send
           </Button>
         </div>
         {attachedFiles.length > 0 && !isProcessingNotes && (
-          <div className="mx-4 mb-4 text-sm text-gray-500 dark:text-gray-400">
+          <div className="mx-4 mb-4 text-sm text-gray-500">
             Attached: {attachedFiles.map(f => f.file_name).join(', ')}
           </div>
         )}

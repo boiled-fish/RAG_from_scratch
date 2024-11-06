@@ -9,7 +9,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import FAISS
 
 from langchain.embeddings import OllamaEmbeddings
-from langchain.chat_models import ChatOllama
+from langchain.chat_models import ChatOpenAI, ChatOllama
 from langchain.schema import Document
 
 import logging
@@ -292,7 +292,7 @@ Rewritten query:
             
             # Get similar documents
             similar_docs = self.vectorstore.similarity_search(
-                rewritten_query, 
+                query, 
                 k=self.top_k
             )
             
@@ -303,14 +303,13 @@ Rewritten query:
             ])
             
             # Prompt
-            prompt = f"""Based on the following context and question, provide a clear and helpful answer.
+            prompt = f"""Based on the following context and question, provide a clear and helpful answer if the question is related to the context.
             
 Context:
 {context}
 
-Question: {rewritten_query}
-
-Please include relevant file locations and organize the information clearly."""
+Question: {rewritten_query}.
+"""
 
             response = self.generator.invoke(prompt)
             answer = response
