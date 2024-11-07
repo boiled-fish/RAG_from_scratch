@@ -14,6 +14,7 @@ from langchain_ollama import ChatOllama, OllamaEmbeddings
 from langchain_openai import ChatOpenAI
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.schema import Document
+from langchain_community.document_loaders import PyPDFLoader
 
 # Enhanced CustomLogger with timestamp and better formatting
 class CustomLogger:
@@ -56,33 +57,58 @@ class CustomLogger:
 
 def PDFLoader(file_path: str):
     try:
-        with open(file_path, 'rb') as pdf_file:
-            pdf_reader = PyPDF2.PdfReader(pdf_file)
-            num_pages = len(pdf_reader.pages)
-            text = ''
-            for page_num in range(num_pages):
-                page = pdf_reader.pages[page_num]
-                if page.extract_text():
-                    text += page.extract_text() + " "
+        # 使用 langchain 的 PyPDFLoader
+        loader = PyPDFLoader(file_path)
+        pages = loader.load()
+        
+        # 提取和清理文本
+        text_chunks = []
+        for page in pages:
+            text = page.page_content
             
-            # Normalize whitespace and clean up text
-            text = re.sub(r'\s+', ' ', text).strip()
+            if not text:
+                continue
+                
+            # 基本清理
+            text = text.strip()
+            if not text:
+                continue
+                
+            # 移除控制字符，但保留基本标点和换行
+            text = ''.join(char for char in text if char >= ' ' or char in '\n\t')
             
-            # Split text into chunks by sentences, respecting a maximum chunk size
-            sentences = re.split(r'(?<=[.!?]) +', text)
-            chunks = []
-            current_chunk = ""
-            for sentence in sentences:
-                if len(current_chunk) + len(sentence) + 1 < 1000:
-                    current_chunk += (sentence + " ").strip()
-                else:
-                    chunks.append(current_chunk)
-                    current_chunk = sentence + " "
-            if current_chunk:
-                chunks.append(current_chunk)
-            return chunks
+            # 规范化空白字符
+            text = re.sub(r'\s+', ' ', text)
+            text = text.strip()
+            
+            # 检查文本是否有效
+            if len(text) < 10:  # 忽略过短的文本
+                continue
+                
+            # 检查文本是否全是特殊字符
+            valid_chars = sum(1 for c in text if c.isalnum() or c.isspace())
+            if valid_chars / len(text) < 0.3:  # 如果有效字符少于30%，认为是乱码
+                continue
+            
+            # 分段处理
+            paragraphs = text.split('\n\n')
+            for para in paragraphs:
+                para = para.strip()
+                if len(para) >= 10:  # 确保段落有足够长度
+                    text_chunks.append(para)
+        
+        # 最终检查所有文本块
+        valid_chunks = []
+        for chunk in text_chunks:
+            # 再次清理和验证
+            chunk = chunk.strip()
+            if len(chunk) >= 10 and any(c.isalnum() for c in chunk):
+                valid_chunks.append(chunk)
+        
+        return valid_chunks
+        
     except Exception as e:
-        print(f"[ERROR] Error processing PDF file: {e}")
+        print(f"[ERROR] Error processing PDF file {file_path}: {str(e)}")
         return []
     
 def load_documents(path):
@@ -204,8 +230,13 @@ class FileStructureManager:
             if partial_name in file_name
         ]
 
+@dataclass
+class ModelStatus:
+    is_processing: bool = False
+    current_operation: str = ""
+
 class RAGModel:
-    def __init__(self, model_type: str, note_folder_path: str, top_k: int = 5):
+    def __init__(self, model_type: str, note_folder_path: str, top_k: int = 20):
         """
         Initialize the RAG system.
         """
@@ -286,6 +317,8 @@ class RAGModel:
         self.chat_history: List[Message] = []
         self.max_history = 10  # Keep last 10 messages for context
 
+        self.status = ModelStatus()
+
     def _initialize_generator_model(self):
         """
         Initialize the generator model based on the current model_type.
@@ -337,8 +370,10 @@ class RAGModel:
             if attached_files:
                 query = f"\n\nOriginal Query: {query}\n\nAttached Files:\n\n"
                 for file in attached_files:
-                    content = "\n".join(file['file_content'])
-                    query += f"{file['file_name']}:\n{content}\n\n"
+                    if file.get("file_path"):
+                        chunks = PDFLoader(file["file_path"])
+                        if chunks:
+                            query += f"{file['file_name']}:\n{chunks}\n\n"
 
             self.log.info(f"Query: {query}")
             
@@ -409,14 +444,14 @@ class RAGModel:
 
 If the context lacks information relevant to the question, disregard irrelevant details.
 
-Conversation history:
-{conversation_context}
+Conversation history [text between "" are conversation history]:
+"{conversation_context}"
 
-Context:
-{context}
+Context [text between "" are context]:
+"{context}"
 
-Question:
-{query}
+Question [text between "" are question]:
+"{query}"
 
 Please provide a clear and helpful answer.
 - Consider the conversation history in your response.
@@ -443,6 +478,10 @@ Please provide a clear and helpful answer.
         Add new documents from a different folder to the vector store.
         """
         try:
+            self.status.is_processing = True
+            self.status.current_operation = "Processing new documents..."
+            self.log.info("Started processing new documents")
+            
             # Load new documents
             new_documents = load_documents(new_folder_path)
             if not new_documents:
@@ -450,6 +489,7 @@ Please provide a clear and helpful answer.
                 return
 
             # Split documents
+            self.status.current_operation = "Splitting documents..."
             text_splitter = RecursiveCharacterTextSplitter(
                 chunk_size=500,
                 chunk_overlap=50,
@@ -461,18 +501,24 @@ Please provide a clear and helpful answer.
                 self.log.warning("No text chunks created after splitting")
                 return
 
-            # Create new vectorstore for the documents
+            # Create new vectorstore
+            self.status.current_operation = "Updating vector store..."
             new_vectorstore = FAISS.from_documents(
                 documents=new_splits,
                 embedding=self.embedding_model
             )
             
-            # Merge the vectorstores
+            # Merge vectorstores
             self.vectorstore.merge_from(new_vectorstore)
             
             self.log.info(f"Added {len(new_splits)} new document chunks to the vector store")
+            
         except Exception as e:
             self.log.error(f"Error adding documents: {str(e)}")
+            raise e
+        finally:
+            self.status.is_processing = False
+            self.status.current_operation = ""
 
     def clear_history(self):
         """Clear conversation history"""

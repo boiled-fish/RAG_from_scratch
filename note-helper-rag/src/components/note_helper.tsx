@@ -7,8 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Upload, Send, Bot, User, Folder } from 'lucide-react'
-import { debounce } from 'lodash';
+import { Upload, Send, Bot, User, Folder, Loader2, X, Paperclip } from 'lucide-react'
 
 declare module 'react' {
   interface InputHTMLAttributes<T> extends HTMLAttributes<T> {
@@ -35,7 +34,8 @@ interface Message {
   isUser: boolean
   files?: Array<{
     file_name: string,
-    file_content: string[]
+    file_content?: string[]
+    file?: File
   }>
 }
 
@@ -45,7 +45,7 @@ function Component() {
   const [model, setModel] = useState('Ollama')
   const [attachedFiles, setAttachedFiles] = useState<Array<{
     file_name: string,
-    file_content: string[]
+    file: File
   }>>([])
   const [isLoading, setIsLoading] = useState(false)
   const [showFolderDialog, setShowFolderDialog] = useState(true)
@@ -54,6 +54,9 @@ function Component() {
   const [isProcessingNotes, setIsProcessingNotes] = useState(false)
   const [manualPath, setManualPath] = useState('')
   const [showManualInput, setShowManualInput] = useState(false)
+  const [isProcessingFiles, setIsProcessingFiles] = useState(false);
+  const [processingOperation, setProcessingOperation] = useState("");
+  const [isDragging, setIsDragging] = useState(false)
 
   useEffect(() => {
     if (scrollAreaRef.current) {
@@ -63,6 +66,34 @@ function Component() {
       }, 50);
     }
   }, [messages, isLoading]);
+
+  useEffect(() => {
+    const pollStatus = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/model_status');
+        const data = await response.json();
+        setIsProcessingFiles(data.is_processing);
+        setProcessingOperation(data.operation);
+      } catch (error) {
+        console.error('Error polling status:', error);
+      }
+    };
+
+    const intervalId = setInterval(pollStatus, 2000);
+    return () => clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    if (scrollAreaRef.current) {
+      const scrollContainer = scrollAreaRef.current;
+      requestAnimationFrame(() => {
+        const scrollElement = scrollContainer.querySelector('[data-radix-scroll-area-viewport]');
+        if (scrollElement) {
+          scrollElement.scrollTop = scrollElement.scrollHeight;
+        }
+      });
+    }
+  }, [messages, isLoading, attachedFiles]);
 
   const handleSend = async () => {
     if (isProcessingNotes) {
@@ -89,15 +120,19 @@ function Component() {
       setAttachedFiles([])
       setIsLoading(true)
   
+      const formData = new FormData()
+      formData.append('message', input)
+      formData.append('model', model)
+      
+      // 修改文件的添加方式
+      attachedFiles.forEach((fileObj) => {
+        formData.append('files', fileObj.file)  // 改用'files'作为key，与服务器端对应
+      })
+
       try {
         const response = await fetch('http://localhost:8000/chat', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            message: input, 
-            model: model.toLowerCase(),
-            files: attachedFiles
-          }),
+          body: formData
         })
   
         if (!response.ok) {
@@ -121,12 +156,12 @@ function Component() {
   }
 
   const handleFileAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || [])
-    const processedFiles = await Promise.all(files.map(async file => {
-      const content = await file.text()
+    if (!e.target.files) return
+    
+    const processedFiles = await Promise.all(Array.from(e.target.files).map(async file => {
       return {
         file_name: file.name,
-        file_content: content.split('\n')
+        file: file
       }
     }))
     setAttachedFiles([...attachedFiles, ...processedFiles])
@@ -209,6 +244,28 @@ function Component() {
     }
   }
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+  }
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+
+    const files = Array.from(e.dataTransfer.files)
+    const processedFiles = await Promise.all(files.map(async file => ({
+      file_name: file.name,
+      file: file
+    })))
+    setAttachedFiles(prev => [...prev, ...processedFiles])
+  }
+
   return (
     <>
       <Dialog 
@@ -287,7 +344,21 @@ function Component() {
         </DialogContent>
       </Dialog>
 
-      <div className="flex flex-col h-screen bg-gray-50">
+      <div 
+        className="flex flex-col h-screen bg-gray-50"
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {isDragging && (
+          <div className="absolute inset-0 bg-blue-500/20 backdrop-blur-sm z-50 flex items-center justify-center">
+            <div className="bg-white p-6 rounded-xl shadow-lg text-center">
+              <Upload className="h-12 w-12 text-blue-500 mx-auto mb-3" />
+              <p className="text-lg font-medium text-gray-900">Drop files here</p>
+            </div>
+          </div>
+        )}
+
         <Card className="m-4 bg-white border-gray-200 shadow-sm">
           <CardContent className="p-4">
             <div className="flex justify-between items-center">
@@ -397,6 +468,13 @@ function Component() {
             className="flex-grow bg-white border-gray-200"
             disabled={isProcessingNotes || isLoading}
           />
+          <input
+            type="file"
+            id="file-upload"
+            onChange={handleFileAttach}
+            className="hidden"
+            multiple
+          />
           <Button
             variant="outline"
             size="icon"
@@ -416,11 +494,52 @@ function Component() {
           </Button>
         </div>
         {attachedFiles.length > 0 && !isProcessingNotes && (
-          <div className="mx-4 mb-4 text-sm text-gray-500">
-            Attached: {attachedFiles.map(f => f.file_name).join(', ')}
+          <div className="mx-4 mb-4 p-2 bg-gray-50 rounded-lg border border-gray-200">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-gray-700">
+                <Paperclip className="inline-block w-4 h-4 mr-1" />
+                Attached Files ({attachedFiles.length})
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setAttachedFiles([])}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                Clear all
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {attachedFiles.map((file, index) => (
+                <div
+                  key={index}
+                  className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-full border border-gray-200 text-sm"
+                >
+                  <span className="text-gray-600">{file.file_name}</span>
+                  <button
+                    onClick={() => {
+                      const newFiles = [...attachedFiles];
+                      newFiles.splice(index, 1);
+                      setAttachedFiles(newFiles);
+                    }}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
+      {isProcessingFiles && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-blue-500 text-white px-6 py-3 rounded-full shadow-lg z-50">
+          <div className="flex items-center">
+            <Loader2 className="animate-spin mr-3 h-5 w-5" />
+            <span className="font-medium">{processingOperation || 'Processing files...'}</span>
+          </div>
+        </div>
+      )}
     </>
   )
 }
