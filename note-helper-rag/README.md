@@ -1,36 +1,95 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Note Helper
+
+Note Helper is an AI-powered web application that helps you manage and interact with your notes using natural language processing. Built with Next.js and FastAPI, it provides an intuitive interface for document analysis and question answering.
+
+## Features
+
+- 🤖 AI-powered note analysis and question answering
+- 📁 Support for multiple document formats (PDF, TXT, MD)
+- 🔄 Real-time file processing status updates
+- 📎 Drag-and-drop file attachments
+- 💬 Interactive chat interface
+- 🔄 Multiple AI model support (Ollama, ChatGPT-4)
+
+## Tech Stack
+
+- Frontend: Next.js 15.0
+- UI Components: shadcn/ui
+- Styling: Tailwind CSS
+- Backend: FastAPI
+- AI Models: Ollama, ChatGPT-4
+
+## Environment Setup
+
+1. Make sure you have Node.js installed (v18 or higher)
+2. Install Python dependencies with conda:
+```bash
+conda create -n note-helper python=3.9.19
+conda activate note-helper
+pip install -r server/requirements.txt
+```
+
+3. Install Ollama, see [Ollama](https://ollama.com/docs/installation) && Pull Ollama models [Ollama3.1:8b, Nomic-embed-text-v3.small]
+```bash
+ollama pull ollama/llama3.1:8b
+ollama pull ollama/nomic-embed-text-v3.small
+```
+
+4. Set up the required Ollama or OpenAI API key in the .env file
+```bash
+OLLAMA_HOST=http://localhost:11434 # Default ollama server host, change if you have a remote server
+OPENAI_API_KEY= # OpenAI API key, change if you want to use OpenAI
+```
 
 ## Getting Started
 
-First, run the development server:
-
+1. Clone the repository & cd note-helper-rag
+2. Launch Ollama server, see [Ollama](https://ollama.com/docs/installation) and make sure Ollama models [Ollama3.1:8b, Nomic-embed-text-v3.small] are pulled
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+ollama pull ollama/llama3.1:8b
+ollama pull ollama/nomic-embed-text-v3.small
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+3. Install React dependencies:
+```bash
+npm install
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+4. Start the development server:
+```bash
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+5. Start the backend server:
+```bash
+uvicorn server:app --reload --port 8000
+```
 
-## Learn More
+6. Open [http://localhost:3000](http://localhost:3000) with your browser
 
-To learn more about Next.js, take a look at the following resources:
+## Project Structure
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+note-helper-rag/
+├── src/
+│   ├── app/
+│   │   ├── global.css    # Global styles
+│   │   ├── layout.tsx    # App layout and metadata
+│   │   └── page.tsx      # Main page component
+│   │   └── favicon.ico   # Favicon
+│   └── components/
+│   |   ├── note_helper.tsx    # Main application component
+│   |   └── ui/               # UI components
+│   └── server/                   # Backend server code
+│       ├── server.py               # FastAPI application
+│       ├── rag_langchain.py        # Langchain application
+│       └── requirements.txt        # Python dependencies
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Contributing
 
-## Deploy on Vercel
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## License
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This project is licensed under the MIT License - see the LICENSE file for details.
