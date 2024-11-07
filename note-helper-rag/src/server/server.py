@@ -6,7 +6,6 @@ from pathlib import Path
 import time
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-import asyncio
 import threading
 from typing import List
 import os

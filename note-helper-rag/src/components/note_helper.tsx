@@ -305,7 +305,7 @@ function Component() {
                   onClick={() => setShowManualInput(true)}
                   className="w-full h-14 justify-start gap-3 text-gray-700 hover:bg-gray-50 border-gray-200"
                 >
-                  <Input className="h-5 w-5 text-blue-500" />
+                  <Folder className="h-5 w-5 text-blue-500" />
                   Enter Path Manually
                 </Button>
               </>
