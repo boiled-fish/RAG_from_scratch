@@ -124,9 +124,9 @@ function Component() {
       formData.append('message', input)
       formData.append('model', model)
       
-      // 修改文件的添加方式
+      // Modify file addition method
       attachedFiles.forEach((fileObj) => {
-        formData.append('files', fileObj.file)  // 改用'files'作为key，与服务器端对应
+        formData.append('files', fileObj.file)  // Use 'files' as key, matching server side
       })
 
       try {
@@ -398,30 +398,30 @@ function Component() {
                 </div>
                 <div className="prose prose-sm dark:prose-invert max-w-none">
                   {message.text.split('\n').map((paragraph, i) => {
-                    // 处理标题 (# 开头)
+                    // Process title (# starts)
                     if (paragraph.startsWith('# ')) {
                       return <h1 key={i} className="text-xl font-bold mb-2">{paragraph.substring(2)}</h1>;
                     }
-                    // 处理子标题 (## 开头)
+                    // Process sub-title (## starts)
                     if (paragraph.startsWith('## ')) {
                       return <h2 key={i} className="text-lg font-bold mb-2">{paragraph.substring(3)}</h2>;
                     }
-                    // 处理列表项 (- 或 * 开头)
+                    // Process list item (- or * starts)
                     if (paragraph.trim().startsWith('- ') || paragraph.trim().startsWith('* ')) {
                       return <li key={i} className="ml-4">{paragraph.substring(2)}</li>;
                     }
-                    // 处理加粗文本 (**text**)
+                    // Process bold text (**text**)
                     const boldText = paragraph.replace(
                       /\*\*(.*?)\*\*/g, 
                       '<strong>$1</strong>'
                     );
-                    // 处理代码片段 (`code`)
+                    // Process code snippet (`code`)
                     const codeText = boldText.replace(
                       /`(.*?)`/g,
                       '<code class="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded">$1</code>'
                     );
                     
-                    // 如果是空行，添加额外的间距
+                    // If it's an empty line, add extra spacing
                     if (paragraph.trim() === '') {
                       return <div key={i} className="h-4"></div>;
                     }

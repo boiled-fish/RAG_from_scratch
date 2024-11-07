@@ -35,19 +35,19 @@ class FolderRequest(BaseModel):
 class NotesWatcher(FileSystemEventHandler):
     def __init__(self, rag_model):
         self.rag_model = rag_model
-        self.last_processed = {}  # 使用字典存储文件最后处理时间
+        self.last_processed = {}  # Use a dictionary to store file last processed time
         self.processing_lock = threading.Lock()
-        self.cooldown_period = 5  # 冷却时间（秒）
+        self.cooldown_period = 5  # Cooldown period (seconds)
     
     def should_process_file(self, file_path: Path) -> bool:
-        """检查文件是否应该被处理"""
+        """Check if file should be processed"""
         current_time = time.time()
         
-        # 检查文件扩展名
+        # Check file extension
         if file_path.suffix.lower() not in ['.txt', '.md', '.pdf']:
             return False
             
-        # 检查是否在冷却期内
+        # Check if in cooldown period
         if file_path in self.last_processed:
             last_time = self.last_processed[file_path]
             if current_time - last_time < self.cooldown_period:
@@ -56,7 +56,7 @@ class NotesWatcher(FileSystemEventHandler):
         return True
     
     def process_file_change(self, file_path: Path):
-        """处理文件变更"""
+        """Process file changes"""
         with self.processing_lock:
             if not self.should_process_file(file_path):
                 return
@@ -91,18 +91,18 @@ observer = None
 async def init_notes(request: FolderRequest):
     global rag_model, observer
     try:
-        # 获取当前工作目录的绝对路径
+        # Get the absolute path of the current working directory
         current_dir = Path.cwd()
-        folder_path = Path(request.folder_path.lstrip('/'))  # 移除前导斜杠
+        folder_path = Path(request.folder_path.lstrip('/'))  # Remove leading slashes
         
-        # 如果是默认路径 ./notes
+        # If the default path is ./notes
         if str(folder_path) == "notes":
             abs_folder_path = current_dir / "notes"
         else:
-            # 对于用户选择文件夹，构建相对于当前工作目录的路径
+            # For user-selected folders, build a path relative to the current working directory
             abs_folder_path = current_dir / folder_path
         
-        # 确保目录存在
+        # Ensure the directory exists
         abs_folder_path.mkdir(exist_ok=True)
         
         print(f"[INFO] Using absolute path: {abs_folder_path}")
@@ -152,11 +152,11 @@ async def chat(
         if model.lower() != rag_model.model_type:
             rag_model.switch_model(model.lower())
         
-        # 处理上传的文件
+        # Process uploaded files
         processed_files = []
         for file in files:
             if file.filename.lower().endswith('.pdf'):
-                # 使用 os.path.join 构建文件路径
+                # Use os.path.join to build the file path
                 file_path = os.path.join(TEMP_DIR, file.filename)
                 with open(file_path, "wb") as buffer:
                     content = await file.read()

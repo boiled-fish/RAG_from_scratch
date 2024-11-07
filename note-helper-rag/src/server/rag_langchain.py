@@ -57,11 +57,11 @@ class CustomLogger:
 
 def PDFLoader(file_path: str):
     try:
-        # 使用 langchain 的 PyPDFLoader
+        # Use langchain's PyPDFLoader
         loader = PyPDFLoader(file_path)
         pages = loader.load()
         
-        # 提取和清理文本
+        # Extract and clean text
         text_chunks = []
         for page in pages:
             text = page.page_content
@@ -69,38 +69,38 @@ def PDFLoader(file_path: str):
             if not text:
                 continue
                 
-            # 基本清理
+            # Basic cleanup
             text = text.strip()
             if not text:
                 continue
                 
-            # 移除控制字符，但保留基本标点和换行
+            # Remove control characters, but keep basic punctuation and line breaks
             text = ''.join(char for char in text if char >= ' ' or char in '\n\t')
             
-            # 规范化空白字符
+            # Normalize whitespace characters
             text = re.sub(r'\s+', ' ', text)
             text = text.strip()
             
-            # 检查文本是否有效
-            if len(text) < 10:  # 忽略过短的文本
+            # Check if text is valid
+            if len(text) < 10:  # Ignore short text
                 continue
                 
-            # 检查文本是否全是特殊字符
+            # Check if text is all special characters
             valid_chars = sum(1 for c in text if c.isalnum() or c.isspace())
-            if valid_chars / len(text) < 0.3:  # 如果有效字符少于30%，认为是乱码
+            if valid_chars / len(text) < 0.3:  # If valid characters are less than 30%, it's likely gibberish
                 continue
             
-            # 分段处理
+            # Process in paragraphs
             paragraphs = text.split('\n\n')
             for para in paragraphs:
                 para = para.strip()
-                if len(para) >= 10:  # 确保段落有足够长度
+                if len(para) >= 10:  # Ensure paragraph has enough length
                     text_chunks.append(para)
         
-        # 最终检查所有文本块
+        # Final check for all text chunks
         valid_chunks = []
         for chunk in text_chunks:
-            # 再次清理和验证
+            # Clean and validate again
             chunk = chunk.strip()
             if len(chunk) >= 10 and any(c.isalnum() for c in chunk):
                 valid_chunks.append(chunk)
