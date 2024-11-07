@@ -1,95 +1,17 @@
-# Note Helper
+# ECE 570 Term Project
 
-Note Helper is an AI-powered web application that helps you manage and interact with your notes using natural language processing. Built with Next.js and FastAPI, it provides an intuitive interface for document analysis and question answering.
+This project aims to reimplement the paper [“RAG: Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks”](https://proceedings.neurips.cc/paper/2020/hash/6b493230205f780e1bc26945df7481e5-Abstract.html). For model training, I explored three approaches:
 
-## Features
+- **Fine-tuning** both the retriever and generator using pre-trained models.
+- **Training** both the retriever and generator from scratch.
+- **Training** only the retriever component.
 
-- 🤖 AI-powered note analysis and question answering
-- 📁 Support for multiple document formats (PDF, TXT, MD)
-- 🔄 Real-time file processing status updates
-- 📎 Drag-and-drop file attachments
-- 💬 Interactive chat interface
-- 🔄 Multiple AI model support (Ollama, ChatGPT-4)
+Due to limitations in GPU resources and time constraints, it proved impractical to train a fully functional model from scratch or to fine-tune both the retriever and generator concurrently. Consequently, I opted to utilize [LangChain](https://www.langchain.com/), a Python library tailored for constructing RAG systems, to develop the RAG application.
 
-## Tech Stack
+The resulting application, **Note Helper**, is a web-based tool that allows users to select a folder of documents as the knowledge base. Users can add more documents to the knowledge base at any time and ask questions about the content.
 
-- Frontend: Next.js 15.0
-- UI Components: shadcn/ui
-- Styling: Tailwind CSS
-- Backend: FastAPI
-- AI Models: Ollama, ChatGPT-4
+![Note Helper](./Note_helper.png)
 
-## Environment Setup
+**Note Helper** is deployed locally, utilizing Ollama's open-source LLM models or OpenAI's models for versatile performance. It realized a context management system, which allows the model to have long-term memory. It features a user-friendly web application for seamless interaction and is complemented by a PyQt5 desktop application, providing users with flexible options for managing and querying their document-based knowledge base.
 
-1. Make sure you have Node.js installed (v18 or higher)
-2. Install Python dependencies with conda:
-```bash
-conda create -n note-helper python=3.9.19
-conda activate note-helper
-pip install -r server/requirements.txt
-```
-
-3. Install Ollama, see [Ollama](https://ollama.com/docs/installation) && Pull Ollama models [Ollama3.1:8b, Nomic-embed-text-v3.small]
-```bash
-ollama pull ollama/llama3.1:8b
-ollama pull ollama/nomic-embed-text-v3.small
-```
-
-4. Set up the required Ollama or OpenAI API key in the .env file
-```bash
-OLLAMA_HOST=http://localhost:11434 # Default ollama server host, change if you have a remote server
-OPENAI_API_KEY= # OpenAI API key, change if you want to use OpenAI
-```
-
-## Getting Started
-
-1. Clone the repository & cd note-helper-rag
-2. Launch Ollama server, see [Ollama](https://ollama.com/docs/installation) and make sure Ollama models [Ollama3.1:8b, Nomic-embed-text-v3.small] are pulled
-```bash
-ollama pull ollama/llama3.1:8b
-ollama pull ollama/nomic-embed-text-v3.small
-```
-
-3. Install React dependencies:
-```bash
-npm install
-```
-
-4. Start the development server:
-```bash
-npm run dev
-```
-
-5. Start the backend server:
-```bash
-uvicorn server:app --reload --port 8000
-```
-
-6. Open [http://localhost:3000](http://localhost:3000) with your browser
-
-## Project Structure
-
-```
-note-helper-rag/
-├── src/
-│   ├── app/
-│   │   ├── global.css    # Global styles
-│   │   ├── layout.tsx    # App layout and metadata
-│   │   └── page.tsx      # Main page component
-│   │   └── favicon.ico   # Favicon
-│   └── components/
-│   |   ├── note_helper.tsx    # Main application component
-│   |   └── ui/               # UI components
-│   └── server/                   # Backend server code
-│       ├── server.py               # FastAPI application
-│       ├── rag_langchain.py        # Langchain application
-│       └── requirements.txt        # Python dependencies
-```
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+For a more comprehensive understanding of the project, please refer to the [Note Helper README](./note-helper-rag/README.md) located in the `note-helper-rag` directory and the [Training README](./train/README.md) found in the `train` directory.

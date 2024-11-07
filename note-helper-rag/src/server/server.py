@@ -9,6 +9,7 @@ from watchdog.events import FileSystemEventHandler
 import threading
 from typing import List
 import os
+from dotenv import load_dotenv
 
 app = FastAPI()
 
@@ -20,8 +21,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Global variables
+rag_model = None
+observer = None
+
 TEMP_DIR = "temp"
 os.makedirs(TEMP_DIR, exist_ok=True)
+load_dotenv()
 
 class ChatRequest(BaseModel):
     message: str
@@ -81,10 +87,6 @@ class NotesWatcher(FileSystemEventHandler):
             
         file_path = Path(event.src_path)
         self.process_file_change(file_path)
-
-# Global variables
-rag_model = None
-observer = None
 
 @app.post("/init_notes")
 async def init_notes(request: FolderRequest):

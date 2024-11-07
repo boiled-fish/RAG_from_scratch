@@ -1,95 +1,155 @@
 # Note Helper
 
-Note Helper is an AI-powered web application that helps you manage and interact with your notes using natural language processing. Built with Next.js and FastAPI, it provides an intuitive interface for document analysis and question answering.
+<div align="center">
 
-## Features
+An AI-powered note management system that enables natural language interactions with your documents.
 
-- 🤖 AI-powered note analysis and question answering
-- 📁 Support for multiple document formats (PDF, TXT, MD)
-- 🔄 Real-time file processing status updates
-- 📎 Drag-and-drop file attachments
-- 💬 Interactive chat interface
-- 🔄 Multiple AI model support (Ollama, ChatGPT-4)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Next.js](https://img.shields.io/badge/Next.js-14.0-black)](https://nextjs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-latest-009688)](https://fastapi.tiangolo.com/)
+[![Python 3.9+](https://img.shields.io/badge/Python-3.9+-blue)](https://www.python.org/downloads/)
 
-## Tech Stack
+</div>
 
-- Frontend: Next.js 15.0
-- UI Components: shadcn/ui
-- Styling: Tailwind CSS
-- Backend: FastAPI
-- AI Models: Ollama, ChatGPT-4
+## ✨ Features
 
-## Environment Setup
+- 🤖 **AI-Powered Analysis**: Advanced note analysis and intelligent question answering
+- 📁 **Multi-Format Support**: Seamlessly handle PDF, TXT, and MD files
+- 🔄 **Real-Time Processing**: Live status updates during file processing
+- 📎 **Easy File Management**: Intuitive drag-and-drop file uploads
+- 💬 **Interactive Chat**: Natural conversation interface with your documents
+- 🔄 **Flexible AI Models**: Switch between Ollama and OpenAI models
+- 📊 **Vector Database**: Efficient document embedding and retrieval
+- 🔍 **RAG Implementation**: State-of-the-art retrieval augmented generation
 
-1. Make sure you have Node.js installed (v18 or higher)
-2. Install Python dependencies with conda:
+## 🛠️ Tech Stack
+
+### Frontend
+- **Framework**: Next.js 14.0
+- **UI Components**: shadcn/ui
+- **Styling**: Tailwind CSS
+
+### Backend
+- **Server**: FastAPI
+- **AI Models**: 
+  - Ollama (llama3.1:8b)
+  - OpenAI (GPT-4)
+- **Vector Store**: FAISS
+
+## 📋 Prerequisites
+
+- Node.js (v18 or higher)
+- Python 3.9+
+- Ollama (for local AI model support)
+- Git
+
+## 🚀 Quick Start
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/boiled-fish/RAG_from_scratch.git
+cd RAG_from_scratch/note-helper-rag
+```
+
+### 2. Environment Setup
+
+1. Create and activate Python environment:
 ```bash
 conda create -n note-helper python=3.9.19
 conda activate note-helper
 pip install -r server/requirements.txt
 ```
 
-3. Install Ollama, see [Ollama](https://ollama.com/docs/installation) && Pull Ollama models [Ollama3.1:8b, Nomic-embed-text-v3.small]
+2. Ollama Setup
+2.1. Install Ollama from [official website](https://ollama.com/docs/installation)
+2.2. Pull required models:
 ```bash
-ollama pull ollama/llama3.1:8b
-ollama pull ollama/nomic-embed-text-v3.small
+ollama pull llama3.1:8b
+ollama pull nomic-embed-text:latest
 ```
 
-4. Set up the required Ollama or OpenAI API key in the .env file
+3. Environment Variables
+Create a `.env` file in the root directory:
 ```bash
-OLLAMA_HOST=http://localhost:11434 # Default ollama server host, change if you have a remote server
-OPENAI_API_KEY= # OpenAI API key, change if you want to use OpenAI
+# AI Model Configuration
+OPENAI_API_KEY=your_openai_api_key
+OLLAMA_BASE_URL=http://localhost:11434
+
+# Langsmith Configuration
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_ENDPOINT=https://api.smith.langchain.com
+LANGCHAIN_API_KEY=your_langsmith_api_key
+LANGCHAIN_PROJECT=your_project_name
 ```
 
-## Getting Started
-
-1. Clone the repository & cd note-helper-rag
-2. Launch Ollama server, see [Ollama](https://ollama.com/docs/installation) and make sure Ollama models [Ollama3.1:8b, Nomic-embed-text-v3.small] are pulled
-```bash
-ollama pull ollama/llama3.1:8b
-ollama pull ollama/nomic-embed-text-v3.small
-```
-
-3. Install React dependencies:
+4. Frontend Dependencies
 ```bash
 npm install
 ```
 
-4. Start the development server:
+### 3. Launch Application
+1. Launch Ollama server
+```bash
+ollama serve
+```
+
+2. Start development server (in a new terminal):
 ```bash
 npm run dev
 ```
 
-5. Start the backend server:
+3. Start backend server (in another terminal):
 ```bash
 uvicorn server:app --reload --port 8000
 ```
 
-6. Open [http://localhost:3000](http://localhost:3000) with your browser
+4. Visit [http://localhost:3000](http://localhost:3000) to access the application.
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 note-helper-rag/
-├── src/
-│   ├── app/
-│   │   ├── global.css    # Global styles
-│   │   ├── layout.tsx    # App layout and metadata
-│   │   └── page.tsx      # Main page component
-│   │   └── favicon.ico   # Favicon
-│   └── components/
-│   |   ├── note_helper.tsx    # Main application component
-│   |   └── ui/               # UI components
-│   └── server/                   # Backend server code
-│       ├── server.py               # FastAPI application
-│       ├── rag_langchain.py        # Langchain application
-│       └── requirements.txt        # Python dependencies
+├── src/                      # Source code
+│   ├── app/                  # Next.js app
+│   │   ├── globals.css       # Global styles
+│   │   ├── layout.tsx        # App layout
+│   │   └── page.tsx          # Main page
+│   ├── components/           # React components
+│   │   ├── note_helper.tsx   # Main app component
+│   │   └── ui/               # UI components
+│   └── server/               # Backend
+│       ├── server.py         # FastAPI server
+│       ├── rag_langchain.py  # RAG implementation
+│       └── requirements.txt  # Python dependencies
+├── py_client/                # Python desktop client
+│   ├── note_helper.py        # PyQt5 client
+└── package.json              # Node.js dependencies
 ```
 
-## Contributing
+## 💡 Usage Guide
+
+### Note Management
+1. **Select Note Path**: 
+   - Use default path (`./note-helper-rag/note`)
+   - Or choose custom directory
+2. **Process Notes**:
+   - System will automatically process the note file and save the embeddings to the vector database, and when you add new notes, system will also process the new notes and update the vector database.
+
+### AI Model Selection
+- Toggle between Ollama and OpenAI models via the dropdown in top-right corner
+- Default: Ollama (llama3.1:8b)
+
+### Interacting with Notes
+- Ask questions about your documents
+- System uses RAG to provide context-aware responses
+- Supports general chat functionality
+
+## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request

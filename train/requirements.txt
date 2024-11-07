@@ -1,0 +1,37 @@
+# Core ML Libraries
+torch>=2.0.0
+transformers>=4.36.0
+faiss-cpu>=1.7.4
+numpy>=1.24.0
+tqdm>=4.65.0
+
+# NLP & Evaluation
+datasets>=2.14.0
+evaluate>=0.4.0
+nltk>=3.8.1
+rouge_score>=0.1.2
+beautifulsoup4>=4.12.0
+
+# LangChain Related
+langchain>=0.1.0
+langchain-community>=0.0.10
+langchain-openai>=0.0.2
+langchain-ollama>=0.0.1
+langchain_text_splitters>=0.0.1
+
+# Image Processing
+Pillow>=10.0.0
+torchvision>=0.15.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# PDF Processing
+PyPDF2>=3.0.0
+
+# Logging & Monitoring
+tensorboard>=2.14.0
+
+# Optional: for CUDA support
+torch-cuda>=2.0.0  # Uncomment if CUDA support is needed
