@@ -20,10 +20,12 @@ test/
 Thumbs.db
 
 # Ignore Node.js or front-end related content (if the Web folder contains front-end code)
-Web/node_modules/
-Web/.next/
-Web/dist/
+note-helper-rag/node_modules
+note-helper-rag/.next
+note-helper-rag/dist
+note-helper-rag/lib
 
 playground/
 
 hugging_face_models/
+
